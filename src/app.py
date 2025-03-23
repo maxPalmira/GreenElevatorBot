@@ -151,40 +151,38 @@ async def debug_handler(message: types.Message):
     logger.info(f"🔍 Unhandled message from @{message.from_user.username} ({message.from_user.id}): {message.text}")
     await message.answer("Sorry, I don't understand that command. Try /start or /menu")
 
-async def reset_webhook_with_retries(max_retries=5):
-    """Reset webhook with multiple retries"""
-    for attempt in range(1, max_retries + 1):
-        try:
-            logger.info(f"🔄 Removing webhook (attempt {attempt}/{max_retries})...")
-            await bot.delete_webhook(drop_pending_updates=True)
-            
-            # Wait a bit to ensure the webhook deletion is processed
-            await asyncio.sleep(3)
-            
-            # Check webhook status
-            webhook_info = await bot.get_webhook_info()
-            logger.info(f"ℹ️ Webhook status: {webhook_info}")
-            
-            if not webhook_info.url:
-                logger.info("✅ Webhook successfully removed")
-                return True
-            
-            logger.warning(f"❗ Webhook still exists after deletion, retrying... URL: {webhook_info.url}")
-        except Exception as e:
-            logger.error(f"❌ Error removing webhook (attempt {attempt}/{max_retries}): {e}")
+async def set_webhook(url):
+    """Set webhook for the bot"""
+    try:
+        # Remove any existing webhook first
+        await bot.delete_webhook(drop_pending_updates=True)
         
-        # Wait before retry
-        if attempt < max_retries:
-            await asyncio.sleep(attempt * 2)  # Exponential backoff
-    
-    logger.error("⛔ Failed to remove webhook after multiple attempts")
-    return False
+        # Wait a bit to ensure webhook deletion is processed
+        await asyncio.sleep(1)
+        
+        # Set the new webhook
+        logger.info(f"🔗 Setting webhook to: {url}")
+        await bot.set_webhook(url)
+        
+        # Check webhook status
+        webhook_info = await bot.get_webhook_info()
+        logger.info(f"ℹ️ Webhook status: {webhook_info}")
+        
+        if webhook_info.url == url:
+            logger.info("✅ Webhook successfully set")
+            return True
+        else:
+            logger.error(f"❌ Failed to set webhook: Expected URL {url}, got {webhook_info.url}")
+            return False
+    except Exception as e:
+        logger.error(f"❌ Error setting webhook: {e}")
+        return False
 
-async def on_startup(dp):
-    """Initialization function executed when bot starts"""
-    logger.info("🚀 Starting bot...")
+async def on_startup_webhook(dp):
+    """Initialization function for webhook mode"""
+    logger.info("🚀 Starting bot in webhook mode...")
     
-    # Clear any PID files if they exist (to avoid conflicts with manage_bot.py)
+    # Clear any PID files if they exist
     pid_file = os.path.join('run', 'bot.pid')
     if os.path.exists(pid_file):
         try:
@@ -194,8 +192,53 @@ async def on_startup(dp):
             logger.warning(f"⚠️ Could not remove PID file: {e}")
     
     try:
-        # Make sure the webhook is deleted completely
-        await reset_webhook_with_retries(max_retries=5)
+        logger.info("💾 Initializing database...")
+        db.create_tables()
+        
+        # Get Railway-provided URL
+        webhook_host = os.getenv('RAILWAY_PUBLIC_DOMAIN')
+        port = os.getenv('PORT', 8080)
+        
+        if webhook_host:
+            webhook_url = f"https://{webhook_host}/webhook"
+            logger.info(f"📡 Railway domain detected: {webhook_host}")
+            
+            # Set webhook
+            success = await set_webhook(webhook_url)
+            if not success:
+                logger.error("⚠️ Failed to set webhook, falling back to polling")
+        else:
+            logger.warning("⚠️ No Railway domain detected, webhook cannot be configured")
+        
+        me = await bot.get_me()
+        logger.info(f"ℹ️ Bot Info: @{me.username} (ID: {me.id})")
+        logger.info("✅ Bot started successfully!")
+        
+        # Start heartbeat monitoring
+        logging_middleware.start_heartbeat()
+    except Exception as e:
+        logger.error(f"❌ Error during startup: {e}")
+        raise e
+
+async def on_startup_polling(dp):
+    """Initialization function for polling mode"""
+    logger.info("🚀 Starting bot in polling mode...")
+    
+    # Clear any PID files if they exist
+    pid_file = os.path.join('run', 'bot.pid')
+    if os.path.exists(pid_file):
+        try:
+            os.remove(pid_file)
+            logger.info(f"🗑️ Removed stale PID file: {pid_file}")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not remove PID file: {e}")
+    
+    try:
+        # Make sure the webhook is deleted
+        logger.info("🔄 Removing webhook...")
+        await bot.delete_webhook(drop_pending_updates=True)
+        webhook_info = await bot.get_webhook_info()
+        logger.info(f"ℹ️ Webhook status: {webhook_info}")
         
         logger.info("💾 Initializing database...")
         db.create_tables()
@@ -223,28 +266,50 @@ async def on_shutdown(dp):
         raise e
 
 def main():
-    """Start the bot in polling mode"""
-    logger.info("🔄 Starting bot in polling mode...")
-    
+    """Start the bot with appropriate mode for the environment"""
     # Create run directory if it doesn't exist
     os.makedirs('run', exist_ok=True)
     
-    try:
-        executor.start_polling(
-            dp,
-            on_startup=on_startup,
-            on_shutdown=on_shutdown,
-            skip_updates=True,
-            timeout=30,  # Polling timeout
-            relax=1.0,    # Time between polling requests
-        )
-    except TerminatedByOtherGetUpdates:
-        logger.error("⚠️ Terminated by other getUpdates request. Waiting 10 seconds and restarting...")
-        time.sleep(10)  # Wait for other processes to finish
-        main()  # Restart polling
-    except Exception as e:
-        logger.error(f"❌ Polling error: {e}")
-        raise e
+    # Check if we're running on Railway
+    on_railway = bool(os.getenv('RAILWAY_PUBLIC_DOMAIN'))
+    
+    if on_railway:
+        logger.info("🌐 Railway environment detected. Starting in webhook mode...")
+        # Get port from environment or use default
+        port = int(os.getenv('PORT', 8080))
+        
+        # If we have a public domain, use webhook mode
+        try:
+            executor.start_webhook(
+                dispatcher=dp,
+                webhook_path='/webhook',
+                on_startup=on_startup_webhook,
+                on_shutdown=on_shutdown,
+                skip_updates=True,
+                host='0.0.0.0',
+                port=port
+            )
+        except Exception as e:
+            logger.error(f"❌ Webhook error: {e}")
+            raise e
+    else:
+        logger.info("💻 Local environment detected. Starting in polling mode...")
+        try:
+            executor.start_polling(
+                dp,
+                on_startup=on_startup_polling,
+                on_shutdown=on_shutdown,
+                skip_updates=True,
+                timeout=30,  # Polling timeout
+                relax=1.0,    # Time between polling requests
+            )
+        except TerminatedByOtherGetUpdates:
+            logger.error("⚠️ Terminated by other getUpdates request. Waiting 10 seconds and restarting...")
+            time.sleep(10)  # Wait for other processes to finish
+            main()  # Restart polling
+        except Exception as e:
+            logger.error(f"❌ Polling error: {e}")
+            raise e
 
 if __name__ == '__main__':
     main()
