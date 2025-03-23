@@ -154,6 +154,12 @@ async def on_startup(dp):
     """Initialization function executed when bot starts"""
     logger.info("🚀 Starting bot...")
     try:
+        # Delete webhook before polling
+        logger.info("🔄 Removing webhook...")
+        await bot.delete_webhook(drop_pending_updates=True)
+        webhook_info = await bot.get_webhook_info()
+        logger.info(f"ℹ️ Webhook status: {webhook_info}")
+        
         logger.info("💾 Initializing database...")
         db.create_tables()
         logger.info("✅ Bot started successfully!")
