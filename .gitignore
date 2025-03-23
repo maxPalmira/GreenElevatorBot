@@ -1,16 +1,49 @@
-# Cache files
+# Python
 __pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
-# Project files
-.idea/
-*.log
-.env
-venv
+# Virtual Environment
+venv/
 .venv/
-*.session
-data/config.py
-data/database.db
+ENV/
 
-# vscode
+# IDE
+.idea/
 .vscode/
 .history/
+*.swp
+*.swo
+
+# Project specific
+.env
+.env.test
+*.log
+*.session
+data/database.db
+run/bot.pid
+logs/
+htmlcov/
+.coverage
+.pytest_cache/
+.DS_Store
+
+# Documentation
+docs/_build/
