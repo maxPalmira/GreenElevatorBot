@@ -1,1 +1,1 @@
-web: python -m src.app 
+web: sleep 10 && python -m src.app 

@@ -12,6 +12,7 @@ from aiogram.dispatcher.middlewares import BaseMiddleware
 import logging.handlers
 import json
 from datetime import datetime
+from aiogram.utils.exceptions import TerminatedByOtherGetUpdates
 
 # Create logs directory if it doesn't exist
 os.makedirs('logs', exist_ok=True)
@@ -150,15 +151,51 @@ async def debug_handler(message: types.Message):
     logger.info(f"🔍 Unhandled message from @{message.from_user.username} ({message.from_user.id}): {message.text}")
     await message.answer("Sorry, I don't understand that command. Try /start or /menu")
 
+async def reset_webhook_with_retries(max_retries=5):
+    """Reset webhook with multiple retries"""
+    for attempt in range(1, max_retries + 1):
+        try:
+            logger.info(f"🔄 Removing webhook (attempt {attempt}/{max_retries})...")
+            await bot.delete_webhook(drop_pending_updates=True)
+            
+            # Wait a bit to ensure the webhook deletion is processed
+            await asyncio.sleep(3)
+            
+            # Check webhook status
+            webhook_info = await bot.get_webhook_info()
+            logger.info(f"ℹ️ Webhook status: {webhook_info}")
+            
+            if not webhook_info.url:
+                logger.info("✅ Webhook successfully removed")
+                return True
+            
+            logger.warning(f"❗ Webhook still exists after deletion, retrying... URL: {webhook_info.url}")
+        except Exception as e:
+            logger.error(f"❌ Error removing webhook (attempt {attempt}/{max_retries}): {e}")
+        
+        # Wait before retry
+        if attempt < max_retries:
+            await asyncio.sleep(attempt * 2)  # Exponential backoff
+    
+    logger.error("⛔ Failed to remove webhook after multiple attempts")
+    return False
+
 async def on_startup(dp):
     """Initialization function executed when bot starts"""
     logger.info("🚀 Starting bot...")
+    
+    # Clear any PID files if they exist (to avoid conflicts with manage_bot.py)
+    pid_file = os.path.join('run', 'bot.pid')
+    if os.path.exists(pid_file):
+        try:
+            os.remove(pid_file)
+            logger.info(f"🗑️ Removed stale PID file: {pid_file}")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not remove PID file: {e}")
+    
     try:
-        # Delete webhook before polling
-        logger.info("🔄 Removing webhook...")
-        await bot.delete_webhook(drop_pending_updates=True)
-        webhook_info = await bot.get_webhook_info()
-        logger.info(f"ℹ️ Webhook status: {webhook_info}")
+        # Make sure the webhook is deleted completely
+        await reset_webhook_with_retries(max_retries=5)
         
         logger.info("💾 Initializing database...")
         db.create_tables()
@@ -188,14 +225,26 @@ async def on_shutdown(dp):
 def main():
     """Start the bot in polling mode"""
     logger.info("🔄 Starting bot in polling mode...")
-    executor.start_polling(
-        dp,
-        on_startup=on_startup,
-        on_shutdown=on_shutdown,
-        skip_updates=True,
-        timeout=30,  # Polling timeout
-        relax=1.0    # Time between polling requests
-    )
+    
+    # Create run directory if it doesn't exist
+    os.makedirs('run', exist_ok=True)
+    
+    try:
+        executor.start_polling(
+            dp,
+            on_startup=on_startup,
+            on_shutdown=on_shutdown,
+            skip_updates=True,
+            timeout=30,  # Polling timeout
+            relax=1.0,    # Time between polling requests
+        )
+    except TerminatedByOtherGetUpdates:
+        logger.error("⚠️ Terminated by other getUpdates request. Waiting 10 seconds and restarting...")
+        time.sleep(10)  # Wait for other processes to finish
+        main()  # Restart polling
+    except Exception as e:
+        logger.error(f"❌ Polling error: {e}")
+        raise e
 
 if __name__ == '__main__':
     main()
