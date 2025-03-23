@@ -1,8 +1,8 @@
 [phases.setup]
-nixPkgs = ["zlib", "zlib.dev", "libjpeg", "libjpeg.dev", "gcc", "python311"]
+nixPkgs = ["zlib", "zlib.dev", "libjpeg", "libjpeg.dev", "gcc", "python311", "libffi", "libffi.dev", "openssl", "openssl.dev", "pkg-config"]
 
 [phases.install]
-cmds = ["python -m venv --copies /opt/venv && . /opt/venv/bin/activate && pip install --no-build-isolation -r requirements.txt"]
+cmds = ["python -m venv --copies /opt/venv && . /opt/venv/bin/activate && pip install --upgrade pip wheel setuptools && pip install --no-build-isolation -r requirements.txt"]
 
 [start]
 cmd = "python -m src.app" 
