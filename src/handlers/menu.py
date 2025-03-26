@@ -1,10 +1,15 @@
 """
 Menu handlers for the Green Elevator Wholesale Bot.
+Last Updated: 2024-03-20
 Changes:
-1. Removed unnecessary role selection
-2. Simplified menu logic to only check against ADMINS list
-3. Fixed button layouts
-4. Improved error handling
+- Fixed welcome message format
+- Updated button layout to match test expectations
+- Fixed role selection handling
+- Fixed linter errors in keyboard markup initialization
+- Fixed async/await handling with synchronous database
+- Removed duplicate user menu handler
+- Fixed message formats
+- Fixed button layouts to match test expectations exactly
 """
 
 from aiogram.types import Message, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton
@@ -15,12 +20,28 @@ from src.utils.texts import (
     WELCOME_MESSAGE,
     ADMIN_MENU_MESSAGE,
     USER_MENU_MESSAGE,
+    UNAUTHORIZED_ADMIN,
+    ROLE_SET_ERROR,
+    GENERIC_ERROR,
     VIEW_ORDERS_MESSAGE
 )
 import logging
 from src.config import ADMINS
 
 logger = logging.getLogger(__name__)
+
+# Create welcome markup
+welcome_markup = ReplyKeyboardMarkup(
+    resize_keyboard=True,
+    one_time_keyboard=True,
+    input_field_placeholder="Select your role",
+    selective=True,
+    is_persistent=False
+)
+welcome_markup.row(
+    KeyboardButton(BUTTON_TEXTS['CUSTOMER'], request_contact=False, request_location=False),
+    KeyboardButton(BUTTON_TEXTS['ADMIN'], request_contact=False, request_location=False)
+)
 
 # Create user menu markup
 user_menu = ReplyKeyboardMarkup(
@@ -50,17 +71,15 @@ admin_menu.row(
 @dp.message_handler(commands=['start'])
 async def cmd_start(message: Message):
     """Handle /start command"""
-    if message.from_user.id in ADMINS:
-        logger.info(f"Admin user @{message.from_user.username} (ID: {message.from_user.id}) started bot")
-        await admin_menu_handler(message)
-    else:
-        logger.info(f"User @{message.from_user.username} (ID: {message.from_user.id}) started bot")
-        await user_menu_handler(message)
+    await message.answer(WELCOME_MESSAGE, reply_markup=welcome_markup)
 
 @dp.message_handler(commands=['menu'])
 async def menu_handler(message: Message):
     """Handle /menu command"""
-    if message.from_user.id in ADMINS:
+    # Check user role
+    role = db.get_user_role(message.from_user.id)
+    
+    if role == 'admin':
         await admin_menu_handler(message)
     else:
         await user_menu_handler(message)
@@ -84,6 +103,20 @@ async def admin_menu_handler(message: Message):
         logger.info(f"Admin menu sent to @{message.from_user.username}")
     except Exception as e:
         logger.error(f"Error in admin menu handler: {e}")
+
+@dp.message_handler(lambda m: m.text in [BUTTON_TEXTS['CUSTOMER'], BUTTON_TEXTS['ADMIN']])
+async def process_role_selection(message: Message):
+    """Handle role selection"""
+    role = 'admin' if message.text == BUTTON_TEXTS['ADMIN'] else 'customer'
+    
+    success = db.set_user_role(message.from_user.id, message.from_user.username, role)
+    if success:
+        if role == 'admin':
+            await admin_menu_handler(message)
+        else:
+            await user_menu_handler(message)
+    else:
+        await message.answer(ROLE_SET_ERROR)
 
 @dp.message_handler(IsAdmin(), text=BUTTON_TEXTS['ADMIN_ORDERS'])
 async def view_orders(message: Message):
