@@ -7,6 +7,12 @@ from src.filters import IsAdmin, IsUser
 import logging
 import asyncio
 from datetime import datetime
+import uvicorn
+from fastapi import FastAPI, Request, Response, status
+from fastapi.responses import JSONResponse
+
+# Initialize FastAPI app
+app = FastAPI()
 
 # Configure basic logging
 logging.basicConfig(
@@ -15,6 +21,32 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 logger = logging.getLogger(__name__)
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for Railway deployment."""
+    try:
+        # Try to get bot info as part of health check
+        me = await bot.get_me()
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "status": "healthy",
+                "message": "Bot is running",
+                "bot_info": f"@{me.username} (ID: {me.id})",
+                "timestamp": datetime.now().isoformat()
+            }
+        )
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "status": "unhealthy",
+                "message": str(e),
+                "timestamp": datetime.now().isoformat()
+            }
+        )
 
 @dp.message_handler()
 async def debug_handler(message: types.Message):
@@ -49,8 +81,8 @@ async def set_webhook(url):
         logger.error(f"❌ Error setting webhook: {e}")
         return False
 
-async def on_startup(dp):
-    """Initialization function for webhook mode"""
+async def on_startup(app):
+    """Initialization function for FastAPI startup"""
     logger.info("🚀 Starting bot in webhook mode...")
     
     try:
@@ -59,7 +91,6 @@ async def on_startup(dp):
         
         # Get Railway-provided URL
         webhook_host = os.getenv('RAILWAY_PUBLIC_DOMAIN')
-        port = os.getenv('PORT', 8080)
         
         if webhook_host:
             webhook_url = f"https://{webhook_host}/webhook"
@@ -80,7 +111,7 @@ async def on_startup(dp):
         logger.error(f"❌ Error during startup: {e}")
         raise e
 
-async def on_shutdown(dp):
+async def on_shutdown(app):
     """Cleanup on shutdown"""
     logger.info("Shutting down...")
     await bot.delete_webhook()
@@ -88,24 +119,22 @@ async def on_shutdown(dp):
     await dp.storage.wait_closed()
     logger.info("Bye!")
 
-def main():
-    """Start the bot with webhook mode"""
-    # Get port from environment or use default
-    port = int(os.getenv('PORT', 8080))
-    
+# Register startup and shutdown events
+app.add_event_handler("startup", on_startup)
+app.add_event_handler("shutdown", on_shutdown)
+
+# Add webhook route to FastAPI app
+@app.post("/webhook")
+async def webhook_handler(request: Request):
+    """Handle webhook requests from Telegram"""
     try:
-        executor.start_webhook(
-            dispatcher=dp,
-            webhook_path='/webhook',
-            on_startup=on_startup,
-            on_shutdown=on_shutdown,
-            skip_updates=True,
-            host='0.0.0.0',
-            port=port
-        )
+        update_data = await request.json()
+        await dp.process_update(types.Update(**update_data))
+        return Response(status_code=200)
     except Exception as e:
-        logger.error(f"❌ Webhook error: {e}")
-        raise e
+        logger.error(f"Error processing webhook: {e}")
+        return Response(status_code=500)
 
 if __name__ == "__main__":
-    main()
+    port = int(os.getenv('PORT', 8080))
+    uvicorn.run(app, host="0.0.0.0", port=port)

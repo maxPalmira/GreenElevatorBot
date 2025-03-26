@@ -5,6 +5,8 @@ python-dotenv>=0.21.0,<1.0.0
 SQLAlchemy>=1.4.0,<2.0.0
 python-dateutil>=2.8.2,<3.0.0
 Pillow>=9.0.0,<10.0.0  # Using newer version with better wheel support
+fastapi==0.68.0
+uvicorn==0.15.0
 
 # Testing and development dependencies
 pytest==7.3.1
