@@ -34,17 +34,20 @@ class TestAdminMenu:
         """Test admin menu command"""
         print("\nTesting admin menu")  # Simplified format for easier detection
         
+        # Get message mock
+        message = await admin_message_mock
+        
         # Set command
-        admin_message_mock.text = '/menu'
+        message.text = '/menu'
         
         # Handle command
-        await admin_menu_handler(admin_message_mock)
+        await admin_menu_handler(message)
         
         # Verify response
-        admin_message_mock.answer.assert_called_once()
-        response_text = admin_message_mock.answer.call_args[0][0]
+        message.answer.assert_called_once()
+        response_text = message.answer.call_args[0][0]
         assert response_text == ADMIN_MENU_MESSAGE, "Expected admin menu message to match exactly"
         
         # Verify markup was included
-        response_markup = admin_message_mock.answer.call_args[1].get('reply_markup')
+        response_markup = message.answer.call_args[1].get('reply_markup')
         assert response_markup is not None, "Expected markup to be present" 

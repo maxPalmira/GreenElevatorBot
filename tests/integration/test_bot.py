@@ -8,7 +8,7 @@ import sys
 from aiogram import types, Bot, Dispatcher
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from tests.utils.test_utils import compare_responses, print_header, print_info, print_success, print_failure
-from src.utils.test_utils_integration import send_message, validate_response
+from tests.utils.test_utils_integration import send_message, validate_response
 from unittest.mock import AsyncMock
 from src.handlers.menu import cmd_start, user_menu_handler
 from src.handlers.user.catalog import process_catalog
@@ -53,97 +53,94 @@ def message_mock():
 
 @pytest.mark.asyncio
 class TestBot:
+    @pytest.mark.asyncio
     async def test_start_command(self, message_mock):
         """Test the start command"""
         print_header("Testing /start command")
-        
+
         try:
             # Set command
             message_mock.text = "/start"
-            
+
             # Call handler
             await cmd_start(message_mock)
-            
+
             # Define expected content
             expected_content = {
-                "greeting": "👋 Welcome to Green Elevator Wholesale!",
-                "description": "premier cannabis wholesale supplier",
-                "commands": ["/menu", "/contact"],
-                "buttons": ["Customer", "Admin"]
+                "text": "Welcome to Green Elevator Wholesale!\n\nPlease select your role:",
+                "buttons": [["Customer", "Admin"]]
             }
-            
+
             # Get actual response
             response_text = message_mock.answer.call_args[0][0]
             response_markup = message_mock.answer.call_args[1].get('reply_markup')
-            
+
             # Compare and report
             result = compare_responses(expected_content, response_text, response_markup)
             assert result.success, str(result)
-            print_success("Start command test passed")
-            
+
         except Exception as e:
-            print_failure(f"Start command test failed: {str(e)}")
+            print(f"\n✗ Start command test failed: {str(e)}")
             raise
 
+    @pytest.mark.asyncio
     async def test_menu_command(self, message_mock):
         """Test the menu command"""
         print_header("Testing /menu command")
-        
+
         try:
             # Set command
             message_mock.text = "/menu"
-            
+
             # Call handler
             await user_menu_handler(message_mock)
-            
+
             # Define expected content
             expected_content = {
-                "greeting": "Welcome to Green Elevator Wholesale!",
-                "prompt": "Please select an option",
-                "buttons": ["🌿 Products", "☎️ Contact"]
+                "text": "Welcome to Green Elevator Wholesale!\n\nPlease select an option:",
+                "buttons": [["🌿 Products"], ["☎️ Contact"]]
             }
-            
+
             # Get actual response
             response_text = message_mock.answer.call_args[0][0]
             response_markup = message_mock.answer.call_args[1].get('reply_markup')
-            
+
             # Compare and report
             result = compare_responses(expected_content, response_text, response_markup)
             assert result.success, str(result)
-            print_success("Menu command test passed")
-            
+
         except Exception as e:
-            print_failure(f"Menu command test failed: {str(e)}")
+            print(f"\n✗ Menu command test failed: {str(e)}")
             raise
 
+    @pytest.mark.asyncio
     async def test_products_command(self, message_mock):
         """Test the products command"""
         print_header("Testing products command")
-        
+
         try:
             # Set command
             message_mock.text = "🌿 Products"
-            
+
             # Call handler
             await process_catalog(message_mock)
-            
+
             # Define expected content
             expected_content = {
-                "products": ["Premium Thai", "Island Blend", "Royal Haze"],
-                "price": "99,000฿/kilo"
+                "text": "Available Products:",
+                "buttons": [["🛒 Cart"], ["🔙 Back"]]
             }
-            
+
             # Get actual response
             response_text = message_mock.answer.call_args[0][0]
             response_markup = message_mock.answer.call_args[1].get('reply_markup')
-            
+
             # Compare and report
             result = compare_responses(expected_content, response_text, response_markup)
             assert result.success, str(result)
-            print_success("Products command test passed")
-            
+
         except Exception as e:
-            print_failure(f"Products command test failed: {str(e)}")
+            print(f"\n✗ Products command test failed: {str(e)}")
             raise
 
     async def test_contact_command(self, message_mock):

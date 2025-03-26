@@ -361,7 +361,7 @@ To ask the admin a question, simply select the `/sos` command. There is a limit 
   - `unit/`: Unit test cases
   - `integration/`: Integration test suites
   - `functional/`: End-to-end test scenarios
-  - `run_tests.py`: Test execution script
+  - `run_tests.py`: Test runner with coverage reporting
   - `test_bot.py`: Bot-specific tests
   - `pytest.ini`: Test configuration
 
@@ -468,3 +468,95 @@ Tests are automatically run on:
 - Pull requests
 - Main branch commits
 - Release tags
+
+## Testing the Bot
+
+This project includes two testing tools to verify your bot is functioning correctly:
+
+### 1. API-Based Testing (Recommended)
+
+The `test_bot_api.py` script tests your bot through the official Telegram API. This is the preferred testing method, especially for Railway deployments.
+
+```bash
+python test_bot_api.py YOUR_BOT_TOKEN CHAT_ID
+```
+
+This script:
+- Verifies the bot is online and responding
+- Sends test commands (/start, /menu)
+- Confirms the commands were successfully sent
+
+Since this works through Telegram's official API, it will work even if direct webhook access is restricted.
+
+### 2. Webhook Testing (Limited with Railway)
+
+The `test_webhook.py` script attempts to test your webhook endpoint directly by simulating Telegram updates.
+
+```bash
+python test_webhook.py
+```
+
+**Note**: This method often fails with Railway deployments due to Railway's edge routing limitations. If you see 404 errors, use the API-based testing method instead.
+
+### Continuous Integration
+
+In CI/CD pipelines, use the API-based testing script to verify your bot is functioning after deployment:
+
+```bash
+# Example CI command
+BOT_TOKEN=your_token CHAT_ID=your_id python test_bot_api.py
+```
+
+## Webhook Debugging
+
+The bot comes with a simple webhook testing tool that allows you to send commands to your bot via the webhook and see the responses directly in Telegram.
+
+### Features
+
+- Send commands to your bot via webhook
+- Send callback queries to simulate button presses
+- Receive confirmation messages in Telegram
+- See webhook response times and status codes
+
+### Using the Webhook Tester
+
+You can use the `webhook_logger.py` script to test your webhook:
+
+```bash
+# Basic test - send a /start command
+./webhook_logger.py https://your-webhook-url/webhook 123456789 "/start"
+
+# Send a command with notification in Telegram
+./webhook_logger.py https://your-webhook-url/webhook 123456789 "/menu" --token YOUR_BOT_TOKEN
+
+# Test a callback query (button click)
+./webhook_logger.py https://your-webhook-url/webhook 123456789 "callback_data" --callback --token YOUR_BOT_TOKEN
+
+# Show verbose output including request/response details
+./webhook_logger.py https://your-webhook-url/webhook 123456789 "/start" --verbose
+```
+
+### Real Example
+
+To test the bot currently deployed on Railway:
+
+```bash
+./webhook_logger.py https://greenelevetortelegrambottest-production.up.railway.app/webhook 238038462 "/start" --token 8012235294:AAFdgixVaHU9KeMTdyoiFtUSHDSNChHJ2Qo
+```
+
+### Checking Webhook Status
+
+You can check the status of your webhook using:
+
+```bash
+curl https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo
+```
+
+### Troubleshooting Webhook Issues
+
+If you're experiencing issues with your webhook:
+
+1. Make sure your webhook endpoint is publicly accessible
+2. Verify that your webhook URL is correctly set in Telegram
+3. Check for error responses in the webhook tester output
+4. Confirm that you receive messages in Telegram after running the webhook test

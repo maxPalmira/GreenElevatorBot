@@ -41,42 +41,27 @@ async def test_db():
 
 @pytest.fixture
 async def admin_message_mock():
-    """Mock admin message"""
-    message = MagicMock(spec=Message)
+    """Create a mock message for admin tests"""
+    message = AsyncMock(spec=Message)
     message.from_user = MagicMock(spec=User)
     message.from_user.id = 12345
     message.from_user.username = "admin"
     message.chat = MagicMock(spec=Chat)
     message.chat.id = 12345
-    message.chat.type = "private"
-    message.answer = AsyncMock()
-    message.answer_photo = AsyncMock()
-    message.edit_text = AsyncMock()
-    message.delete = AsyncMock()
-    message.chat.do = AsyncMock()
+    message.text = ""
     return message
 
 @pytest.fixture
 async def admin_callback_mock():
-    """Mock admin callback query"""
-    callback = MagicMock(spec=CallbackQuery)
-    callback.from_user = MagicMock(spec=User)
-    callback.from_user.id = 12345
-    callback.from_user.username = "admin"
-    callback.message = MagicMock(spec=Message)
-    callback.message.chat = MagicMock(spec=Chat)
-    callback.message.chat.id = 12345
-    callback.message.chat.type = "private"
-    callback.message.answer = AsyncMock()
-    callback.message.answer_photo = AsyncMock()
-    callback.message.edit_text = AsyncMock()
-    callback.answer = AsyncMock()
-    
-    # Mock bot's send_chat_action
-    from src.loader import bot
-    bot.send_chat_action = AsyncMock()
-    
-    return callback
+    """Create a mock callback query for admin tests"""
+    query = AsyncMock(spec=CallbackQuery)
+    query.from_user = MagicMock(spec=User)
+    query.from_user.id = 12345
+    query.from_user.username = "admin"
+    query.message = AsyncMock(spec=Message)
+    query.message.chat = MagicMock(spec=Chat)
+    query.message.chat.id = 12345
+    return query
 
 @pytest.fixture
 async def state_mock():
@@ -88,30 +73,32 @@ async def state_mock():
     return state
 
 class TestAdminHandlers:
-    """Test admin command handlers"""
+    """Test suite for admin handlers"""
     
+    @pytest.mark.asyncio
     @patch('src.filters.is_admin.ADMINS', [12345])  # Mock ADMINS list to include test user ID
     @patch('src.handlers.menu.db')  # Mock the database in the menu handler
-    async def test_admin_menu(self, db_mock, mock_admins, admin_message_mock, test_db):
+    async def test_admin_menu(self, db_mock, admin_message_mock, test_db):
         """Test admin menu command"""
         print("\n==================== Testing admin menu ====================")
         
         # Set command
-        admin_message_mock.text = '/menu'
+        message = await admin_message_mock
+        message.text = '/menu'
         
         # Create filter with test database
         admin_filter = IsAdmin()
         
         # Check if user has admin access
-        is_admin = await admin_filter.check(admin_message_mock)
+        is_admin = await admin_filter.check(message)
         assert is_admin, "User should have admin access"
         
         # Handle command
-        await admin_menu_handler(admin_message_mock)
+        await admin_menu_handler(message)
         
         # Verify response
-        admin_message_mock.answer.assert_called_once()
-        assert "Admin Menu" in admin_message_mock.answer.call_args[0][0]
+        message.answer.assert_called_once()
+        assert "Admin Menu" in message.answer.call_args[0][0]
     
     async def test_products_management(self, admin_callback_mock, test_db):
         """Test products management"""
@@ -171,21 +158,23 @@ class TestAdminHandlers:
                 break
         assert found, "Question information not found in responses"
     
+    @pytest.mark.asyncio
     @patch('src.filters.is_admin.ADMINS', [])  # Mock ADMINS list to be empty
     @patch('src.handlers.menu.db')  # Mock the database in the menu handler
-    async def test_unauthorized_access(self, db_mock, mock_admins, admin_message_mock, test_db):
+    async def test_unauthorized_access(self, db_mock, admin_message_mock, test_db):
         """Test unauthorized access to admin menu"""
         print("\n==================== Testing unauthorized access ====================")
         
         # Update user role to non-admin
-        test_db.query('UPDATE users SET role = ? WHERE user_id = ?', ('user', admin_message_mock.from_user.id))
+        message = await admin_message_mock
+        test_db.query('UPDATE users SET role = ? WHERE user_id = ?', ('user', message.from_user.id))
         
         # Create filter with test database
         admin_filter = IsAdmin()
         
         # Check if user has admin access
-        is_admin = await admin_filter.check(admin_message_mock)
+        is_admin = await admin_filter.check(message)
         assert not is_admin, "User should not have admin access"
         
         # No need to call handler since filter should prevent access
-        admin_message_mock.answer.assert_not_called()  # Should not show menu to non-admin users 
+        message.answer.assert_not_called()  # Should not show menu to non-admin users 

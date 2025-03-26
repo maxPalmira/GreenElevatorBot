@@ -1,5 +1,8 @@
 # Created: Text constants file to store all message content in a centralized location
-# This file contains all text content used in the bot's messages
+# Last Updated: 2024-03-20
+# Changes:
+# - Fixed button texts to match test expectations
+# - Fixed message formats
 
 __all__ = [
     'BUTTON_TEXTS',
@@ -21,16 +24,14 @@ BUTTON_TEXTS = {
     'ADMIN_ORDERS': '📋 View Orders',
     'ADMIN_QUESTIONS': '❓ Customer Questions',
     'CUSTOMER': 'Customer',
-    'ADMIN': 'Admin'
+    'ADMIN': 'Admin',
+    'CART': '🛒 Cart',
+    'DELIVERY': '🚚 Delivery Status'
 }
 
 # Welcome messages
 WELCOME_MESSAGE = (
-    "👋 Welcome to Green Elevator Wholesale!\n"
-    "Your premier cannabis wholesale supplier\n\n"
-    "Available commands:\n"
-    "/menu - Browse our products\n"
-    "/contact - Get in touch with us\n\n"
+    "Welcome to Green Elevator Wholesale!\n\n"
     "Please select your role:"
 )
 
@@ -53,4 +54,4 @@ CONTACT_INFO_MESSAGE = (
     "Email: contact@greenelevator.com\n"
     "Hours: Monday-Friday 9AM-5PM PST\n\n"
     "For wholesale inquiries, please contact sales@greenelevator.com"
-) 
+)

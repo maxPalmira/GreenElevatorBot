@@ -87,13 +87,21 @@ async def show_products(message: Message, products):
     """Display products with their details and actions"""
     await bot.send_chat_action(message.chat.id, ChatActions.TYPING)
     
+    # Ensure user exists in database
+    user_id = message.from_user.id
+    db.execute(
+        'INSERT OR IGNORE INTO users (user_id, username) VALUES (?, ?)',
+        (user_id, message.from_user.username),
+        commit=True
+    )
+    
     for product in products:
         product_id, title, description, image, price, category = product
         
         # Check if product is in user's cart
         cart_item = db.execute(
             'SELECT quantity FROM cart WHERE user_id = ? AND product_id = ?',
-            (message.from_user.id, product_id),
+            (user_id, product_id),
             fetchone=True
         )
         
