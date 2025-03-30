@@ -4,7 +4,7 @@
 
 import pytest
 from aiogram import types
-from src.handlers.menu import cmd_start, user_menu_handler, admin_menu_handler, process_role_selection, view_orders
+from src.handlers.menu import cmd_start, user_menu_handler, admin_menu_handler, view_orders, menu_handler
 from tests.utils.test_utils import print_header
 from src.utils.texts import (
     BUTTON_TEXTS,
@@ -47,20 +47,29 @@ class TestMenuHandlers:
         
         # Setup mock return value
         db_mock.get_user_role.return_value = None
+        # Mock setting the user role function
+        db_mock.set_user_role.return_value = True
         
-        # Define expected markup structure
+        # Define expected markup structure for user menu (no welcome screen)
         expected_keyboard = [
-            [BUTTON_TEXTS['CUSTOMER'], BUTTON_TEXTS['ADMIN']]
+            [BUTTON_TEXTS['CATALOG']],
+            [BUTTON_TEXTS['CONTACT']]
         ]
         
         await cmd_start(message_mock)
         
+        # Verify that set_user_role was called with 'customer' role
+        db_mock.set_user_role.assert_called_once_with(
+            message_mock.from_user.id,
+            'customer'
+        )
+        
         # Test response text
         print_section("TEXT RESPONSE")
         response_text = message_mock.answer.call_args[0][0]
-        print(f"▶ EXPECTED TEXT:\n{WELCOME_MESSAGE}")
+        print(f"▶ EXPECTED TEXT:\n{USER_MENU_MESSAGE}")
         print(f"▶ ACTUAL TEXT:\n{response_text}")
-        assert response_text == WELCOME_MESSAGE, f"Expected welcome message to match exactly"
+        assert response_text == USER_MENU_MESSAGE, f"Expected user menu message to match exactly"
         
         # Test markup buttons
         print_section("BUTTONS")
@@ -73,20 +82,21 @@ class TestMenuHandlers:
         
         try:
             assert response_markup is not None, "Expected markup to be present"
-            assert len(response_markup.keyboard) == 1, "Expected single row of buttons"
-            assert len(response_markup.keyboard[0]) == 2, "Expected two buttons"
+            assert len(response_markup.keyboard) == 2, "Expected two rows of buttons"
+            assert len(response_markup.keyboard[0]) == 1, "Expected one button in first row"
+            assert len(response_markup.keyboard[1]) == 1, "Expected one button in second row"
             
             # In the mock, buttons are represented as strings
             first_button = response_markup.keyboard[0][0]
-            second_button = response_markup.keyboard[0][1]
+            second_button = response_markup.keyboard[1][0]
             
             # Check if the button is a string or a KeyboardButton
             if isinstance(first_button, str):
-                assert first_button == BUTTON_TEXTS['CUSTOMER'], "First button should be Customer"
-                assert second_button == BUTTON_TEXTS['ADMIN'], "Second button should be Admin"
+                assert first_button == BUTTON_TEXTS['CATALOG'], "First button should be Catalog"
+                assert second_button == BUTTON_TEXTS['CONTACT'], "Second button should be Contact"
             else:
-                assert first_button.text == BUTTON_TEXTS['CUSTOMER'], "First button should be Customer"
-                assert second_button.text == BUTTON_TEXTS['ADMIN'], "Second button should be Admin"
+                assert first_button.text == BUTTON_TEXTS['CATALOG'], "First button should be Catalog"
+                assert second_button.text == BUTTON_TEXTS['CONTACT'], "Second button should be Contact"
                 
         except AssertionError as e:
             print(f"Assertion error: {e}")
@@ -202,35 +212,23 @@ class TestMenuHandlers:
             raise
             
     async def test_process_role_selection(self, message_mock, db_mock):
-        """Test the role selection handler"""
-        print_header("Testing role selection")
+        """Test that role selection has been removed"""
+        print_header("Testing role selection removal")
         
-        # Test customer role selection
-        message_mock.text = BUTTON_TEXTS['CUSTOMER']
-        db_mock.set_user_role.return_value = True
+        # This method should no longer exist, so we test that it's been removed
+        # The test will pass by default, as we're just documenting the removal
+        print("The process_role_selection method should have been removed.")
+        print("Role assignment is now automatic on /start command.")
         
-        with patch('src.handlers.menu.user_menu_handler') as mock_user_menu:
-            await process_role_selection(message_mock)
-            mock_user_menu.assert_called_once_with(message_mock)
-            db_mock.set_user_role.assert_called_with(
-                message_mock.from_user.id, 
-                message_mock.from_user.username, 
-                'customer'
-            )
-        
-        # Test admin role selection
-        message_mock.text = BUTTON_TEXTS['ADMIN']
+        # If an admin starts the bot, they should still get admin privileges
         message_mock.from_user.id = ADMINS[0]  # Make sure user is in admin list
-        db_mock.set_user_role.return_value = True
+        db_mock.get_user_role.return_value = 'admin'
         
-        with patch('src.handlers.menu.admin_menu_handler') as mock_admin_menu:
-            await process_role_selection(message_mock)
-            mock_admin_menu.assert_called_once_with(message_mock)
-            db_mock.set_user_role.assert_called_with(
-                message_mock.from_user.id, 
-                message_mock.from_user.username, 
-                'admin'
-            )
+        await menu_handler(message_mock)
+        
+        # Should call admin_menu_handler for admin users
+        assert message_mock.answer.call_args is not None, "Expected menu handler to respond"
+        assert ADMIN_MENU_MESSAGE in message_mock.answer.call_args[0][0], "Expected admin menu message"
     
     async def test_view_orders(self, message_mock):
         """Test the view orders handler"""

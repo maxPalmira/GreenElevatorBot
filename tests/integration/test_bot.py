@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock
 from src.handlers.menu import cmd_start, user_menu_handler
 from src.handlers.user.catalog import process_catalog
 from src.handlers.user.contact import process_contact
+from unittest.mock import patch
 
 # Configure logging
 logging.basicConfig(
@@ -62,13 +63,14 @@ class TestBot:
             # Set command
             message_mock.text = "/start"
 
-            # Call handler
-            await cmd_start(message_mock)
+            # Call handler with patch to ensure user is not in admin list
+            with patch('src.handlers.menu.ADMINS', []):
+                await cmd_start(message_mock)
 
-            # Define expected content
+            # Define expected content - now directly shows the user menu
             expected_content = {
-                "text": "Welcome to Green Elevator Wholesale!\n\nPlease select your role:",
-                "buttons": [["Customer", "Admin"]]
+                "text": "Welcome to Green Elevator Wholesale!\n\nPlease select an option:",
+                "buttons": [["🌿 Products"], ["☎️ Contact"]]
             }
 
             # Get actual response

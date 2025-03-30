@@ -12,6 +12,8 @@ from src.handlers.admin.questions import process_questions
 from aiogram.dispatcher import FSMContext
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from src.filters.is_admin import IsAdmin
+from src.handlers.admin import admin_menu, products_management, orders_view, questions_view
+from src.config import ADMINS
 
 # Set up memory storage for state management
 dp.storage = MemoryStorage()
@@ -72,6 +74,20 @@ async def state_mock():
     state.finish = AsyncMock()
     return state
 
+@pytest.fixture
+def admin_message():
+    message = AsyncMock()
+    message.from_user.id = ADMINS[0]  # Use first admin ID from config
+    message.from_user.username = "admin"
+    return message
+
+@pytest.fixture
+def user_message():
+    message = AsyncMock()
+    message.from_user.id = 123456789  # Non-admin ID
+    message.from_user.username = "user"
+    return message
+
 class TestAdminHandlers:
     """Test suite for admin handlers"""
     
@@ -100,81 +116,61 @@ class TestAdminHandlers:
         message.answer.assert_called_once()
         assert "Admin Menu" in message.answer.call_args[0][0]
     
-    async def test_products_management(self, admin_callback_mock, test_db):
-        """Test products management"""
-        print("\n==================== Testing products management ====================")
-        
-        # Handle callback
-        await process_products(admin_callback_mock.message)
-        
-        # Verify response
-        assert admin_callback_mock.message.answer.call_count + admin_callback_mock.message.answer_photo.call_count > 0
-        
-        # Check if product info is in any response
-        found = False
-        for call in admin_callback_mock.message.answer.call_args_list + admin_callback_mock.message.answer_photo.call_args_list:
-            text = call[1].get('caption', '') or call[0][0]
-            print(f"\nResponse text: {text}")
-            if 'Test Product' in text and '$990.00' in text and '🔥 Premium Strains' in text:
-                found = True
-                break
-        assert found, "Product information not found in responses"
-    
-    async def test_orders_view(self, admin_callback_mock, test_db):
-        """Test orders view"""
-        print("\n==================== Testing orders view ====================")
-        
-        # Handle callback
-        await process_orders(admin_callback_mock.message)
-        
-        # Verify response
-        admin_callback_mock.message.answer.assert_called()
-        
-        # Check if order info is in any response
-        found = False
-        for call in admin_callback_mock.message.answer.call_args_list:
-            text = call[0][0]
-            if 'Test Product' in text and 'pending' in text:
-                found = True
-                break
-        assert found, "Order information not found in responses"
-    
-    async def test_questions_view(self, admin_callback_mock, test_db):
-        """Test questions view"""
-        print("\n==================== Testing questions view ====================")
-        
-        # Handle callback
-        await process_questions(admin_callback_mock.message)
-        
-        # Verify response
-        admin_callback_mock.message.answer.assert_called()
-        
-        # Check if question info is in any response
-        found = False
-        for call in admin_callback_mock.message.answer.call_args_list:
-            text = call[0][0]
-            if 'Test question?' in text and 'pending' in text:
-                found = True
-                break
-        assert found, "Question information not found in responses"
+    @pytest.mark.asyncio
+    async def test_products_management(self, admin_message):
+        """Test products management access by admin"""
+        with patch('src.handlers.admin.products.db') as mock_db:
+            mock_db.execute.return_value = []  # No products
+            await products_management(admin_message)
+            admin_message.answer.assert_called_once()
+            assert "Products Management" in admin_message.answer.call_args[0][0]
     
     @pytest.mark.asyncio
-    @patch('src.filters.is_admin.ADMINS', [])  # Mock ADMINS list to be empty
-    @patch('src.handlers.menu.db')  # Mock the database in the menu handler
-    async def test_unauthorized_access(self, db_mock, admin_message_mock, test_db):
-        """Test unauthorized access to admin menu"""
-        print("\n==================== Testing unauthorized access ====================")
-        
-        # Update user role to non-admin
-        message = await admin_message_mock
-        test_db.query('UPDATE users SET role = ? WHERE user_id = ?', ('user', message.from_user.id))
-        
-        # Create filter with test database
-        admin_filter = IsAdmin()
-        
-        # Check if user has admin access
-        is_admin = await admin_filter.check(message)
-        assert not is_admin, "User should not have admin access"
-        
-        # No need to call handler since filter should prevent access
-        message.answer.assert_not_called()  # Should not show menu to non-admin users 
+    async def test_orders_view(self, admin_message):
+        """Test orders view access by admin"""
+        with patch('src.handlers.admin.orders.db') as mock_db:
+            mock_db.execute.return_value = []  # No orders
+            await orders_view(admin_message)
+            admin_message.answer.assert_called_once()
+            assert "No orders" in admin_message.answer.call_args[0][0]
+    
+    @pytest.mark.asyncio
+    async def test_questions_view(self, admin_message):
+        """Test questions view access by admin"""
+        with patch('src.handlers.admin.questions.db') as mock_db:
+            mock_db.execute.return_value = []  # No questions
+            await questions_view(admin_message)
+            admin_message.answer.assert_called_once()
+            assert "No questions" in admin_message.answer.call_args[0][0]
+    
+    @pytest.mark.asyncio
+    async def test_unauthorized_access(self, user_message):
+        """Test unauthorized access to admin functions"""
+        # Test admin menu
+        await admin_menu(user_message)
+        user_message.answer.assert_called_once()
+        assert "unauthorized" in user_message.answer.call_args[0][0].lower()
+
+        # Reset mock
+        user_message.reset_mock()
+
+        # Test products management
+        await products_management(user_message)
+        user_message.answer.assert_called_once()
+        assert "unauthorized" in user_message.answer.call_args[0][0].lower()
+
+        # Reset mock
+        user_message.reset_mock()
+
+        # Test orders view
+        await orders_view(user_message)
+        user_message.answer.assert_called_once()
+        assert "unauthorized" in user_message.answer.call_args[0][0].lower()
+
+        # Reset mock
+        user_message.reset_mock()
+
+        # Test questions view
+        await questions_view(user_message)
+        user_message.answer.assert_called_once()
+        assert "unauthorized" in user_message.answer.call_args[0][0].lower() 

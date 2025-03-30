@@ -1,6 +1,6 @@
 """
 Menu handlers for the Green Elevator Wholesale Bot.
-Last Updated: 2024-03-20
+Last Updated: 2024-05-20
 Changes:
 - Fixed welcome message format
 - Updated button layout to match test expectations
@@ -10,6 +10,7 @@ Changes:
 - Removed duplicate user menu handler
 - Fixed message formats
 - Fixed button layouts to match test expectations exactly
+- Removed role selection from start command - users are now automatically set as customers unless they're in admin list
 """
 
 from aiogram.types import Message, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton
@@ -29,19 +30,6 @@ import logging
 from src.config import ADMINS
 
 logger = logging.getLogger(__name__)
-
-# Create welcome markup
-welcome_markup = ReplyKeyboardMarkup(
-    resize_keyboard=True,
-    one_time_keyboard=True,
-    input_field_placeholder="Select your role",
-    selective=True,
-    is_persistent=False
-)
-welcome_markup.row(
-    KeyboardButton(BUTTON_TEXTS['CUSTOMER'], request_contact=False, request_location=False),
-    KeyboardButton(BUTTON_TEXTS['ADMIN'], request_contact=False, request_location=False)
-)
 
 # Create user menu markup
 user_menu = ReplyKeyboardMarkup(
@@ -70,8 +58,33 @@ admin_menu.row(
 
 @dp.message_handler(commands=['start'])
 async def cmd_start(message: Message):
-    """Handle /start command"""
-    await message.answer(WELCOME_MESSAGE, reply_markup=welcome_markup)
+    """Handle /start command - automatically assign role and show menu"""
+    user_id = message.from_user.id
+    username = message.from_user.username
+    
+    logger.info(f"START COMMAND received from user: {username} (ID: {user_id})")
+    logger.info(f"ADMINS list: {ADMINS}")
+    
+    # Automatically set role based on whether user is in admin list
+    role = 'admin' if user_id in ADMINS else 'customer'
+    logger.info(f"Setting user role to: {role}")
+    
+    success = db.set_user_role(user_id, role)
+    
+    if not success:
+        logger.error(f"Failed to set role for user {username} (ID: {user_id})")
+        await message.answer(ROLE_SET_ERROR)
+        return
+    
+    logger.info(f"Role set successfully to {role}")
+    
+    # Show appropriate menu based on role
+    if role == 'admin':
+        logger.info(f"Showing admin menu to {username}")
+        await admin_menu_handler(message)
+    else:
+        logger.info(f"Showing user menu to {username}")
+        await user_menu_handler(message)
 
 @dp.message_handler(commands=['menu'])
 async def menu_handler(message: Message):
@@ -103,20 +116,6 @@ async def admin_menu_handler(message: Message):
         logger.info(f"Admin menu sent to @{message.from_user.username}")
     except Exception as e:
         logger.error(f"Error in admin menu handler: {e}")
-
-@dp.message_handler(lambda m: m.text in [BUTTON_TEXTS['CUSTOMER'], BUTTON_TEXTS['ADMIN']])
-async def process_role_selection(message: Message):
-    """Handle role selection"""
-    role = 'admin' if message.text == BUTTON_TEXTS['ADMIN'] else 'customer'
-    
-    success = db.set_user_role(message.from_user.id, message.from_user.username, role)
-    if success:
-        if role == 'admin':
-            await admin_menu_handler(message)
-        else:
-            await user_menu_handler(message)
-    else:
-        await message.answer(ROLE_SET_ERROR)
 
 @dp.message_handler(IsAdmin(), text=BUTTON_TEXTS['ADMIN_ORDERS'])
 async def view_orders(message: Message):

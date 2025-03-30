@@ -6,6 +6,7 @@ from src.handlers.admin import dp as admin_dp
 from src.filters import IsAdmin, IsUser
 import logging
 import asyncio
+from aiohttp import web
 
 # Configure basic logging
 logging.basicConfig(
@@ -14,6 +15,11 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 logger = logging.getLogger(__name__)
+
+# Create a health endpoint for Railway
+async def health_handler(request):
+    """Health check endpoint for Railway"""
+    return web.json_response({"status": "ok"})
 
 @dp.message_handler()
 async def debug_handler(message: types.Message):
@@ -54,7 +60,8 @@ async def on_startup(dp):
     
     try:
         logger.info("💾 Initializing database...")
-        db.create_tables()
+        # Connect to database (which automatically initializes tables)
+        db.connect()
         
         # Get Railway-provided URL
         webhook_host = os.getenv('RAILWAY_PUBLIC_DOMAIN')
@@ -91,13 +98,29 @@ def main():
     # Get port from environment or use default
     port = int(os.getenv('PORT', 8080))
     
+    # Setup the web app
+    app = web.Application()
+    
+    # Add health endpoint
+    app.router.add_get('/health', health_handler)
+    
+    # Configure webhook settings
+    webhook_path = '/webhook'
+    
+    # Setup webhook handling
+    executor.set_webhook(
+        dispatcher=dp,
+        webhook_path=webhook_path,
+        on_startup=on_startup,
+        on_shutdown=on_shutdown,
+        skip_updates=True,
+        web_app=app
+    )
+    
     try:
-        executor.start_webhook(
-            dispatcher=dp,
-            webhook_path='/webhook',
-            on_startup=on_startup,
-            on_shutdown=on_shutdown,
-            skip_updates=True,
+        # Start the web app
+        web.run_app(
+            app,
             host='0.0.0.0',
             port=port
         )

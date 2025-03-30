@@ -1,4 +1,5 @@
 # Change log: Moved test utilities from src/utils to tests/utils
+# 2024-03-26: Renamed TestResult to ComparisonResult to avoid pytest collection issues
 
 import sys
 import os
@@ -14,7 +15,7 @@ from src.utils.db.database import Database
 init(autoreset=True)
 
 @dataclass
-class TestResult:
+class ComparisonResult:
     success: bool
     details: str
     actual: Dict[str, Any]
@@ -88,7 +89,7 @@ def compare_responses(
     expected: Dict[str, Any], 
     response_text: str, 
     response_markup: Optional[types.ReplyKeyboardMarkup] = None
-) -> TestResult:
+) -> ComparisonResult:
     """
     Compare expected response with actual response
     
@@ -98,7 +99,7 @@ def compare_responses(
         response_markup: Actual response markup
         
     Returns:
-        TestResult object with comparison results
+        ComparisonResult object with comparison results
     """
     result = {
         'success': True,
@@ -189,7 +190,7 @@ def compare_responses(
     if result['details'] == '':
         result['details'] = 'All checks passed.'
         
-    return TestResult(
+    return ComparisonResult(
         success=result['success'],
         details=result['details'],
         actual=result['actual'],
@@ -204,34 +205,34 @@ def init_test_db() -> Database:
     db = Database(DATABASE_PATH)
     
     # Set up test data
-    db.query('''
+    db.execute('''
     INSERT OR IGNORE INTO users (user_id, username, role)
     VALUES (12345, 'test_user', 'admin')
-    ''')
+    ''', commit=True)
     
     # Add test product
-    db.query('''
+    db.execute('''
     INSERT OR IGNORE INTO products (title, description, image, price, tag)
     VALUES ('Test Product', 'This is a test product', 'https://example.com/test.jpg', 99000, 1)
-    ''')
+    ''', commit=True)
     
     # Add test category
-    db.query('''
+    db.execute('''
     INSERT OR IGNORE INTO categories (title)
     VALUES ('🔥 Premium Strains')
-    ''')
+    ''', commit=True)
     
     # Add test order
-    db.query('''
+    db.execute('''
     INSERT OR IGNORE INTO orders (user_id, product_id, quantity, status)
     VALUES (12345, 1, 2, 'pending')
-    ''')
+    ''', commit=True)
     
     # Add test question
-    db.query('''
+    db.execute('''
     INSERT OR IGNORE INTO questions (user_id, username, question, status)
     VALUES (12345, 'test_user', 'Test question?', 'pending')
-    ''')
+    ''', commit=True)
     
     print_success("Test database initialized successfully")
     return db 

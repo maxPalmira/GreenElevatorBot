@@ -40,8 +40,8 @@ async def test_start_command_handler(mock_message):
     
     # Verify the handler called answer() at least once
     mock_message.answer.assert_called()
-    # You can also check the content of the response
-    assert "Welcome" in mock_message.answer.call_args[0][0]
+    # Check the content of the response - should be user menu message, not welcome
+    assert "select an option" in mock_message.answer.call_args[0][0]
 
 @pytest.mark.asyncio
 async def test_webhook_update_processing():
