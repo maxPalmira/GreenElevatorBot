@@ -74,15 +74,23 @@ def get_local_version():
     except:
         return None
 
-def check_railway_health(base_url):
+def check_railway_health(webhook_url):
     """Check the health of the Railway deployment"""
     try:
+        # Extract base URL from webhook URL
+        base_url = webhook_url.split('/webhook')[0]
         response = requests.get(f"{base_url}/health")
         response.raise_for_status()
         health_data = response.json()
         
         print("\n=== RAILWAY HEALTH STATUS ===")
         print(f"Health status: {health_data.get('status', 'Unknown')}")
+        
+        # Show webhook info
+        webhook_info = health_data.get('webhook', {})
+        if webhook_info:
+            print(f"Webhook URL: {webhook_info.get('url', 'Not set')}")
+            print(f"Pending updates: {webhook_info.get('pending_updates', 0)}")
         
         # Compare versions
         deployed_version = health_data.get('version')
@@ -105,7 +113,7 @@ def check_railway_health(base_url):
             else:
                 print(Colors.GREEN + "✓ Local code matches deployed version" + Colors.ENDC)
         
-        return health_data.get('status') == 'OK'
+        return health_data.get('status') == 'ok'
     except Exception as e:
         print(f"\n=== RAILWAY HEALTH ERROR ===")
         print(f"Error: {str(e)}")

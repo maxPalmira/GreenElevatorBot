@@ -21,20 +21,39 @@ logger = logging.getLogger(__name__)
 # Create a health endpoint for Railway
 async def health_handler(request):
     """Health check endpoint for Railway"""
-    # Check webhook status as part of health check
     try:
+        # Check webhook status
         webhook_info = await bot.get_webhook_info()
-        if not webhook_info.url:
-            return web.json_response({"status": "error", "message": "Webhook not set"}, status=500)
-        return web.json_response({
+        
+        # Get Git version
+        try:
+            git_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode('ascii').strip()
+        except:
+            git_hash = None
+            
+        response = {
             "status": "ok",
+            "version": git_hash,
+            "timestamp": datetime.now().isoformat(),
             "webhook": {
                 "url": webhook_info.url,
                 "pending_updates": webhook_info.pending_update_count
             }
-        })
+        }
+        
+        if not webhook_info.url:
+            response["status"] = "error"
+            response["message"] = "Webhook not set"
+            return web.json_response(response, status=500)
+            
+        return web.json_response(response)
+        
     except Exception as e:
-        return web.json_response({"status": "error", "message": str(e)}, status=500)
+        return web.json_response({
+            "status": "error",
+            "message": str(e),
+            "timestamp": datetime.now().isoformat()
+        }, status=500)
 
 @dp.message_handler()
 async def debug_handler(message: types.Message):
@@ -162,23 +181,6 @@ def main():
     except Exception as e:
         logger.error(f"❌ Webhook error: {e}")
         raise e
-
-@app.get("/health")
-async def health_check():
-    try:
-        # Get the current Git commit hash
-        git_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode('ascii').strip()
-        return {
-            "status": "OK",
-            "version": git_hash,
-            "timestamp": datetime.now().isoformat()
-        }
-    except Exception as e:
-        return {
-            "status": "ERROR",
-            "error": str(e),
-            "timestamp": datetime.now().isoformat()
-        }
 
 if __name__ == "__main__":
     main()
