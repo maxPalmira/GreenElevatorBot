@@ -7,6 +7,8 @@ from src.filters import IsAdmin, IsUser
 import logging
 import asyncio
 from aiohttp import web
+import subprocess
+from datetime import datetime
 
 # Configure basic logging
 logging.basicConfig(
@@ -19,7 +21,20 @@ logger = logging.getLogger(__name__)
 # Create a health endpoint for Railway
 async def health_handler(request):
     """Health check endpoint for Railway"""
-    return web.json_response({"status": "ok"})
+    # Check webhook status as part of health check
+    try:
+        webhook_info = await bot.get_webhook_info()
+        if not webhook_info.url:
+            return web.json_response({"status": "error", "message": "Webhook not set"}, status=500)
+        return web.json_response({
+            "status": "ok",
+            "webhook": {
+                "url": webhook_info.url,
+                "pending_updates": webhook_info.pending_update_count
+            }
+        })
+    except Exception as e:
+        return web.json_response({"status": "error", "message": str(e)}, status=500)
 
 @dp.message_handler()
 async def debug_handler(message: types.Message):
@@ -27,32 +42,49 @@ async def debug_handler(message: types.Message):
     logger.info(f"🔍 Unhandled message from @{message.from_user.username} ({message.from_user.id}): {message.text}")
     await message.answer("Sorry, I don't understand that command. Try /start or /menu")
 
-async def set_webhook(url):
-    """Set webhook for the bot"""
-    try:
-        # Remove any existing webhook first
-        await bot.delete_webhook(drop_pending_updates=True)
+async def set_webhook(url, max_retries=3, initial_delay=1):
+    """Set webhook for the bot with retries
+    
+    Args:
+        url: Webhook URL to set
+        max_retries: Maximum number of retry attempts
+        initial_delay: Initial delay between retries (will be exponentially increased)
+    
+    Returns:
+        bool: True if webhook was set successfully, False otherwise
+    
+    Raises:
+        RuntimeError: If webhook could not be set after all retries
+    """
+    for attempt in range(max_retries):
+        try:
+            # Remove any existing webhook first
+            await bot.delete_webhook(drop_pending_updates=True)
+            
+            # Wait to ensure webhook deletion is processed
+            await asyncio.sleep(initial_delay * (2 ** attempt))
+            
+            # Set the new webhook
+            logger.info(f"🔗 Setting webhook to: {url} (attempt {attempt + 1}/{max_retries})")
+            await bot.set_webhook(url)
+            
+            # Verify webhook was set
+            webhook_info = await bot.get_webhook_info()
+            logger.info(f"ℹ️ Webhook status: {webhook_info}")
+            
+            if webhook_info.url == url:
+                logger.info("✅ Webhook successfully set")
+                return True
+            else:
+                logger.error(f"❌ Webhook verification failed: Expected URL {url}, got {webhook_info.url}")
+                
+        except Exception as e:
+            logger.error(f"❌ Error setting webhook (attempt {attempt + 1}/{max_retries}): {e}")
+            
+        if attempt < max_retries - 1:
+            logger.info(f"🔄 Retrying webhook setup in {initial_delay * (2 ** attempt)} seconds...")
         
-        # Wait a bit to ensure webhook deletion is processed
-        await asyncio.sleep(1)
-        
-        # Set the new webhook
-        logger.info(f"🔗 Setting webhook to: {url}")
-        await bot.set_webhook(url)
-        
-        # Check webhook status
-        webhook_info = await bot.get_webhook_info()
-        logger.info(f"ℹ️ Webhook status: {webhook_info}")
-        
-        if webhook_info.url == url:
-            logger.info("✅ Webhook successfully set")
-            return True
-        else:
-            logger.error(f"❌ Failed to set webhook: Expected URL {url}, got {webhook_info.url}")
-            return False
-    except Exception as e:
-        logger.error(f"❌ Error setting webhook: {e}")
-        return False
+    raise RuntimeError(f"Failed to set webhook after {max_retries} attempts")
 
 async def on_startup(dp):
     """Initialization function for webhook mode"""
@@ -66,16 +98,19 @@ async def on_startup(dp):
         # Get Railway-provided URL
         webhook_host = os.getenv('RAILWAY_PUBLIC_DOMAIN')
         
-        if webhook_host:
-            webhook_url = f"https://{webhook_host}/webhook"
-            logger.info(f"📡 Railway domain detected: {webhook_host}")
+        if not webhook_host:
+            raise RuntimeError("⚠️ No Railway domain detected, webhook cannot be configured")
             
-            # Set webhook
-            success = await set_webhook(webhook_url)
-            if not success:
-                logger.error("⚠️ Failed to set webhook")
-        else:
-            logger.warning("⚠️ No Railway domain detected, webhook cannot be configured")
+        webhook_url = f"https://{webhook_host}/webhook"
+        logger.info(f"📡 Railway domain detected: {webhook_host}")
+        
+        # Set webhook with retries
+        try:
+            await set_webhook(webhook_url)
+        except RuntimeError as e:
+            logger.error(f"❌ Critical error: {e}")
+            # Exit the application if webhook setup fails
+            raise SystemExit(1)
         
         me = await bot.get_me()
         logger.info(f"ℹ️ Bot Info: @{me.username} (ID: {me.id})")
@@ -83,7 +118,7 @@ async def on_startup(dp):
         
     except Exception as e:
         logger.error(f"❌ Error during startup: {e}")
-        raise e
+        raise SystemExit(1)
 
 async def on_shutdown(dp):
     """Cleanup on shutdown"""
@@ -127,6 +162,23 @@ def main():
     except Exception as e:
         logger.error(f"❌ Webhook error: {e}")
         raise e
+
+@app.get("/health")
+async def health_check():
+    try:
+        # Get the current Git commit hash
+        git_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode('ascii').strip()
+        return {
+            "status": "OK",
+            "version": git_hash,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        return {
+            "status": "ERROR",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
 
 if __name__ == "__main__":
     main()

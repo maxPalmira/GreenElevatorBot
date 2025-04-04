@@ -6,6 +6,47 @@
 
 A Telegram bot developed to manage cannabis wholesale operations, primarily targeting the market in Thailand. Built using the aiogram framework, this bot facilitates interactions between customers and administrators, offering a streamlined platform for browsing products, managing orders, and providing customer support.
 
+## Deployment
+
+⚠️ **IMPORTANT: Railway-Only Deployment**
+
+This bot is designed to run **exclusively** on Railway platform. We do not support or maintain local deployment options.
+
+Key points about our deployment strategy:
+- ✅ All deployments must be done through Railway
+- ❌ Local development server is not supported
+- ✅ Webhook mode is required (no polling)
+- ✅ Railway handles all infrastructure needs
+- ✅ Environment variables are managed through Railway dashboard
+
+To deploy:
+1. Push to the main branch
+2. Railway will automatically deploy
+3. Verify webhook setup through Telegram's getWebhookInfo
+
+For monitoring:
+- Use Railway's built-in logs
+- Check the /health endpoint on Railway
+- Monitor through Telegram's bot API
+
+## Monitoring and Health Checks
+
+The repository includes a `check_railway_health.py` script for reliable monitoring:
+
+```bash
+# Run the health checker
+./check_railway_health.py
+
+# Run with a specific bot token
+./check_railway_health.py --token YOUR_BOT_TOKEN
+```
+
+This script checks:
+1. **Telegram Webhook Status** - verifies the webhook URL is set correctly, checks for errors
+2. **Railway Health Endpoint** - confirms the Railway deployment is running properly
+
+Use this tool whenever you need to verify your bot's status or troubleshoot deployment issues. It's much more reliable than trying to parse Railway logs directly.
+
 ## Recent Updates
 
 *   🧹 Code cleanup and removal of unused modules
