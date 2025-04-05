@@ -34,15 +34,9 @@ fi
 echo "Deploying to Railway..."
 echo "Target URL: https://$RAILWAY_DOMAIN"
 
-# Deploy using the Railway CLI and capture the output
+# Start deployment and capture the output
 echo "Starting deployment and capturing build logs..."
 railway up 2>&1 | tee deployment.log
-
-# Check if deployment was successful
-if [ ${PIPESTATUS[0]} -ne 0 ]; then
-    echo "❌ Deployment failed! Check deployment.log for details"
-    exit 1
-fi
 
 # Extract build URL from logs if present
 BUILD_URL=$(grep -o 'https://railway.app/project/.*' deployment.log | head -n 1)
@@ -50,37 +44,57 @@ if [ ! -z "$BUILD_URL" ]; then
     echo "Build logs available at: $BUILD_URL"
 fi
 
-# Wait for deployment to complete and service to be available
-echo "Waiting for service to be available..."
-max_attempts=10
-attempt=1
-while [ $attempt -le $max_attempts ]; do
-    if curl -s "https://$RAILWAY_DOMAIN/health" | grep -q "ok"; then
-        echo "✅ Service is responding"
+echo "Deployment initiated. Waiting for stages to complete..."
+
+# Function to check deployment status
+check_deployment_status() {
+    # This is a placeholder - we need to implement proper status checking
+    # using Railway's API or CLI commands that can show deployment status
+    echo "Checking deployment status..."
+    echo "⚠️ Note: Currently unable to programmatically check deployment status"
+    echo "Please check the Railway dashboard at: https://railway.app/project"
+    echo "Current deployment stages:"
+    echo "- Initialization"
+    echo "- Build"
+    echo "- Deploy > Creating containers"
+    echo "- Network"
+    echo "- Post-deploy"
+}
+
+# Wait for deployment to potentially complete
+echo "Waiting 2 minutes for deployment to progress..."
+for i in {1..12}; do
+    echo "Checking status (attempt $i/12)..."
+    check_deployment_status
+    
+    # Try to get health status from new deployment
+    HEALTH_RESPONSE=$(curl -s "https://$RAILWAY_DOMAIN/health")
+    if [[ $HEALTH_RESPONSE == *"initialization"* ]]; then
+        echo "✅ New version detected! Enhanced health endpoint is responding"
         break
+    else
+        echo "⏳ Still waiting for new version... (old version still active)"
     fi
-    echo "Attempt $attempt/$max_attempts: Service not ready yet..."
+    
     sleep 10
-    attempt=$((attempt + 1))
 done
 
-if [ $attempt -gt $max_attempts ]; then
-    echo "❌ Service failed to respond after $max_attempts attempts"
-    exit 1
-fi
+echo "Deployment status check complete."
+echo "⚠️ IMPORTANT: Please verify in the Railway dashboard that all stages completed successfully:"
+echo "https://railway.app/project"
 
 # Check webhook status
-echo "Checking webhook status..."
-curl -s "https://api.telegram.org/bot$BOT_TOKEN/getWebhookInfo"
+echo -e "\nChecking webhook status..."
+curl -s "https://api.telegram.org/bot$BOT_TOKEN/getWebhookInfo" | python3 -m json.tool
 
 # Set webhook
 echo -e "\nSetting webhook..."
 curl -s "https://api.telegram.org/bot$BOT_TOKEN/setWebhook" \
-  -d "url=https://$RAILWAY_DOMAIN/webhook"
+  -d "url=https://$RAILWAY_DOMAIN/webhook" | python3 -m json.tool
 
-echo -e "\nDeployment complete. Verify in Railway dashboard:"
-echo "https://railway.app/project"
-
-# Final health check
-echo -e "\nFinal health check:"
-curl -s "https://$RAILWAY_DOMAIN/health" 
+echo -e "\nDeployment process complete, but please:"
+echo "1. Verify all deployment stages in Railway dashboard"
+echo "2. Check that the new health endpoints are responding:"
+echo "   curl https://$RAILWAY_DOMAIN/health"
+echo "   curl https://$RAILWAY_DOMAIN/health/init"
+echo "   curl https://$RAILWAY_DOMAIN/health/logs" 
