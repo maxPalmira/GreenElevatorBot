@@ -34,8 +34,21 @@ fi
 echo "Deploying to Railway..."
 echo "Target URL: https://$RAILWAY_DOMAIN"
 
-# Deploy using the Railway CLI
-railway up
+# Deploy using the Railway CLI and capture the output
+echo "Starting deployment and capturing build logs..."
+railway up 2>&1 | tee deployment.log
+
+# Check if deployment was successful
+if [ ${PIPESTATUS[0]} -ne 0 ]; then
+    echo "❌ Deployment failed! Check deployment.log for details"
+    exit 1
+fi
+
+# Extract build URL from logs if present
+BUILD_URL=$(grep -o 'https://railway.app/project/.*' deployment.log | head -n 1)
+if [ ! -z "$BUILD_URL" ]; then
+    echo "Build logs available at: $BUILD_URL"
+fi
 
 # Wait for deployment to complete and service to be available
 echo "Waiting for service to be available..."
