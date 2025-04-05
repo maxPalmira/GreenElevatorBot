@@ -9,18 +9,42 @@ import asyncio
 from aiohttp import web
 import subprocess
 from datetime import datetime
+from src.config import BOT_TOKEN
 
 # Configure basic logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s %(levelname)s:%(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# Create a health endpoint for Railway
+# Keep track of initialization status
+initialization_status = {
+    'initialized': False,
+    'env_status': 'Not checked',
+    'db_status': 'Not checked',
+    'start_time': None,
+    'errors': []
+}
+
+# In-memory log storage
+application_logs = []
+
+def log_with_storage(level, message):
+    """Log message and store it in memory"""
+    logger.log(level, message)
+    application_logs.append({
+        'timestamp': datetime.now().isoformat(),
+        'level': logging.getLevelName(level),
+        'message': message
+    })
+    # Keep only last 100 logs
+    if len(application_logs) > 100:
+        application_logs.pop(0)
+
+# Create health endpoints for Railway
 async def health_handler(request):
-    """Health check endpoint for Railway"""
+    """Main health check endpoint"""
     try:
         # Check webhook status
         webhook_info = await bot.get_webhook_info()
@@ -32,13 +56,15 @@ async def health_handler(request):
             git_hash = None
             
         response = {
-            "status": "ok",
+            "status": "ok" if initialization_status['initialized'] else "error",
             "version": git_hash,
             "timestamp": datetime.now().isoformat(),
+            "uptime": str(datetime.now() - initialization_status['start_time']) if initialization_status['start_time'] else None,
             "webhook": {
                 "url": webhook_info.url,
                 "pending_updates": webhook_info.pending_update_count
-            }
+            },
+            "initialization": initialization_status
         }
         
         if not webhook_info.url:
@@ -46,98 +72,65 @@ async def health_handler(request):
             response["message"] = "Webhook not set"
             return web.json_response(response, status=500)
             
+        if not initialization_status['initialized']:
+            response["status"] = "error"
+            response["message"] = "Bot not fully initialized"
+            return web.json_response(response, status=500)
+            
         return web.json_response(response)
         
     except Exception as e:
-        return web.json_response({
+        error_response = {
             "status": "error",
             "message": str(e),
             "timestamp": datetime.now().isoformat()
-        }, status=500)
+        }
+        logger.error(f"Health check failed: {str(e)}")
+        return web.json_response(error_response, status=500)
 
-@dp.message_handler()
-async def debug_handler(message: types.Message):
-    """Handler for unrecognized messages"""
-    logger.info(f"🔍 Unhandled message from @{message.from_user.username} ({message.from_user.id}): {message.text}")
-    await message.answer("Sorry, I don't understand that command. Try /start or /menu")
+async def logs_handler(request):
+    """Endpoint to get recent application logs"""
+    return web.json_response({
+        "logs": [f"[{log['timestamp']}] {log['level']}: {log['message']}" 
+                for log in application_logs]
+    })
 
-async def set_webhook(url, max_retries=3, initial_delay=1):
-    """Set webhook for the bot with retries
-    
-    Args:
-        url: Webhook URL to set
-        max_retries: Maximum number of retry attempts
-        initial_delay: Initial delay between retries (will be exponentially increased)
-    
-    Returns:
-        bool: True if webhook was set successfully, False otherwise
-    
-    Raises:
-        RuntimeError: If webhook could not be set after all retries
-    """
-    for attempt in range(max_retries):
-        try:
-            # Remove any existing webhook first
-            await bot.delete_webhook(drop_pending_updates=True)
-            
-            # Wait to ensure webhook deletion is processed
-            await asyncio.sleep(initial_delay * (2 ** attempt))
-            
-            # Set the new webhook
-            logger.info(f"🔗 Setting webhook to: {url} (attempt {attempt + 1}/{max_retries})")
-            await bot.set_webhook(url)
-            
-            # Verify webhook was set
-            webhook_info = await bot.get_webhook_info()
-            logger.info(f"ℹ️ Webhook status: {webhook_info}")
-            
-            if webhook_info.url == url:
-                logger.info("✅ Webhook successfully set")
-                return True
-            else:
-                logger.error(f"❌ Webhook verification failed: Expected URL {url}, got {webhook_info.url}")
-                
-        except Exception as e:
-            logger.error(f"❌ Error setting webhook (attempt {attempt + 1}/{max_retries}): {e}")
-            
-        if attempt < max_retries - 1:
-            logger.info(f"🔄 Retrying webhook setup in {initial_delay * (2 ** attempt)} seconds...")
-        
-    raise RuntimeError(f"Failed to set webhook after {max_retries} attempts")
+async def init_status_handler(request):
+    """Endpoint to get initialization status"""
+    return web.json_response(initialization_status)
 
-async def on_startup(dp):
-    """Initialization function for webhook mode"""
-    logger.info("🚀 Starting bot in webhook mode...")
-    
+async def on_startup(app):
+    """Startup handler with better status tracking"""
     try:
-        logger.info("💾 Initializing database...")
-        # Connect to database (which automatically initializes tables)
-        db.connect()
+        initialization_status['start_time'] = datetime.now()
         
-        # Get Railway-provided URL
-        webhook_host = os.getenv('RAILWAY_PUBLIC_DOMAIN')
+        # Check environment variables
+        if not BOT_TOKEN:
+            initialization_status['env_status'] = 'Missing BOT_TOKEN'
+            raise ValueError("BOT_TOKEN environment variable is not set!")
+        initialization_status['env_status'] = 'OK'
         
-        if not webhook_host:
-            raise RuntimeError("⚠️ No Railway domain detected, webhook cannot be configured")
-            
-        webhook_url = f"https://{webhook_host}/webhook"
-        logger.info(f"📡 Railway domain detected: {webhook_host}")
-        
-        # Set webhook with retries
+        # Initialize database
         try:
-            await set_webhook(webhook_url)
-        except RuntimeError as e:
-            logger.error(f"❌ Critical error: {e}")
-            # Exit the application if webhook setup fails
-            raise SystemExit(1)
+            db.connect()
+            initialization_status['db_status'] = 'OK'
+        except Exception as e:
+            initialization_status['db_status'] = f'Failed: {str(e)}'
+            raise
+            
+        # Set webhook
+        webhook_url = f"https://{os.getenv('RAILWAY_PUBLIC_DOMAIN')}/webhook"
+        await bot.set_webhook(webhook_url)
         
-        me = await bot.get_me()
-        logger.info(f"ℹ️ Bot Info: @{me.username} (ID: {me.id})")
-        logger.info("✅ Bot started successfully!")
+        # Mark as initialized if everything is OK
+        initialization_status['initialized'] = True
+        log_with_storage(logging.INFO, "Bot successfully initialized")
         
     except Exception as e:
-        logger.error(f"❌ Error during startup: {e}")
-        raise SystemExit(1)
+        error_msg = f"Startup failed: {str(e)}"
+        initialization_status['errors'].append(error_msg)
+        log_with_storage(logging.ERROR, error_msg)
+        raise
 
 async def on_shutdown(dp):
     """Cleanup on shutdown"""
@@ -155,8 +148,10 @@ def main():
     # Setup the web app
     app = web.Application()
     
-    # Add health endpoint
+    # Add health endpoints
     app.router.add_get('/health', health_handler)
+    app.router.add_get('/health/logs', logs_handler)
+    app.router.add_get('/health/init', init_status_handler)
     
     # Configure webhook settings
     webhook_path = '/webhook'
@@ -179,7 +174,7 @@ def main():
             port=port
         )
     except Exception as e:
-        logger.error(f"❌ Webhook error: {e}")
+        log_with_storage(logging.ERROR, f"❌ Webhook error: {e}")
         raise e
 
 if __name__ == "__main__":
