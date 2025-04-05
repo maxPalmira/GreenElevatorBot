@@ -99,28 +99,37 @@ async def init_status_handler(request):
     """Endpoint to get initialization status"""
     return web.json_response(initialization_status)
 
-async def on_startup(app):
+async def on_startup(dp):
     """Startup handler with better status tracking"""
+    log_with_storage(logging.INFO, "Starting initialization process...")
     try:
         initialization_status['start_time'] = datetime.now()
+        log_with_storage(logging.INFO, "Checking environment variables...")
         
         # Check environment variables
         if not BOT_TOKEN:
             initialization_status['env_status'] = 'Missing BOT_TOKEN'
+            log_with_storage(logging.ERROR, "BOT_TOKEN environment variable is not set!")
             raise ValueError("BOT_TOKEN environment variable is not set!")
         initialization_status['env_status'] = 'OK'
+        log_with_storage(logging.INFO, "Environment variables OK")
         
         # Initialize database
+        log_with_storage(logging.INFO, "Initializing database...")
         try:
             db.connect()
             initialization_status['db_status'] = 'OK'
+            log_with_storage(logging.INFO, "Database initialization successful")
         except Exception as e:
             initialization_status['db_status'] = f'Failed: {str(e)}'
+            log_with_storage(logging.ERROR, f"Database initialization failed: {str(e)}")
             raise
             
         # Set webhook
+        log_with_storage(logging.INFO, "Setting up webhook...")
         webhook_url = f"https://{os.getenv('RAILWAY_PUBLIC_DOMAIN')}/webhook"
         await bot.set_webhook(webhook_url)
+        log_with_storage(logging.INFO, f"Webhook set to: {webhook_url}")
         
         # Mark as initialized if everything is OK
         initialization_status['initialized'] = True
