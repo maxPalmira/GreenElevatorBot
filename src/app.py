@@ -165,18 +165,17 @@ def main():
     # Configure webhook settings
     webhook_path = '/webhook'
     
-    # Setup webhook handling
-    executor.set_webhook(
-        dispatcher=dp,
-        webhook_path=webhook_path,
-        on_startup=on_startup,
-        on_shutdown=on_shutdown,
-        skip_updates=True,
-        web_app=app
-    )
-    
     try:
-        # Start the web app
+        # Start the web app with webhook handling
+        executor.set_webhook(
+            dispatcher=dp,
+            webhook_path=webhook_path,
+            on_startup=on_startup,
+            on_shutdown=on_shutdown,
+            skip_updates=True,
+            web_app=app
+        )
+        
         web.run_app(
             app,
             host='0.0.0.0',
