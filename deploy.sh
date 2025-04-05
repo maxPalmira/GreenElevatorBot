@@ -12,20 +12,49 @@ else
     exit 1
 fi
 
-# Set Railway as the current project without interaction
-export RAILWAY_TOKEN=$(cat ~/.railway/config.json | grep token | cut -d'"' -f4)
-
-# Validate token
-if [ -z "$RAILWAY_TOKEN" ]; then
-    echo "❌ Failed to extract Railway token. Please login with 'railway login' first."
+# Check if we're linked to a Railway project
+if ! railway whoami &>/dev/null; then
+    echo "❌ Not logged into Railway. Please run 'railway login' first."
     exit 1
-else
-    echo "✅ Railway token found"
 fi
 
-# Try to deploy using the Railway CLI with a timeout
-echo "Deploying to Railway (with 30s timeout)..."
-timeout 30 railway up > /dev/null 2>&1
+# Ensure we're linked to the correct project
+if ! railway status &>/dev/null; then
+    echo "❌ Not linked to a Railway project. Please run 'railway link' first."
+    exit 1
+fi
+
+# Get the Railway domain from environment
+RAILWAY_DOMAIN="greenelevetortelegrambottest-production.up.railway.app"
+if [ -z "$RAILWAY_DOMAIN" ]; then
+    echo "❌ Could not determine Railway domain"
+    exit 1
+fi
+
+echo "Deploying to Railway..."
+echo "Target URL: https://$RAILWAY_DOMAIN"
+
+# Deploy using the Railway CLI
+railway up
+
+# Wait for deployment to complete and service to be available
+echo "Waiting for service to be available..."
+max_attempts=10
+attempt=1
+while [ $attempt -le $max_attempts ]; do
+    if curl -s "https://$RAILWAY_DOMAIN/health" | grep -q "ok"; then
+        echo "✅ Service is responding"
+        break
+    fi
+    echo "Attempt $attempt/$max_attempts: Service not ready yet..."
+    sleep 10
+    attempt=$((attempt + 1))
+done
+
+if [ $attempt -gt $max_attempts ]; then
+    echo "❌ Service failed to respond after $max_attempts attempts"
+    exit 1
+fi
 
 # Check webhook status
 echo "Checking webhook status..."
@@ -34,9 +63,11 @@ curl -s "https://api.telegram.org/bot$BOT_TOKEN/getWebhookInfo"
 # Set webhook
 echo -e "\nSetting webhook..."
 curl -s "https://api.telegram.org/bot$BOT_TOKEN/setWebhook" \
-  -d "url=https://1greenelevatorbotprod-production.up.railway.app/webhook"
+  -d "url=https://$RAILWAY_DOMAIN/webhook"
 
-echo -e "\nDeployment initiated. Check Railway dashboard for status:"
+echo -e "\nDeployment complete. Verify in Railway dashboard:"
 echo "https://railway.app/project"
-echo -e "\nTo manually set webhook after deployment is complete, run:"
-echo "curl -s \"https://api.telegram.org/bot$BOT_TOKEN/setWebhook\" -d \"url=https://1greenelevatorbotprod-production.up.railway.app/webhook\"" 
+
+# Final health check
+echo -e "\nFinal health check:"
+curl -s "https://$RAILWAY_DOMAIN/health" 
