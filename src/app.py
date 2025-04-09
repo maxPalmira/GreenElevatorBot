@@ -10,6 +10,15 @@ from aiohttp import web
 import subprocess
 from datetime import datetime
 from src.config import BOT_TOKEN
+import json
+import traceback
+
+# Custom JSON Encoder to handle datetime objects
+class DateTimeEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return super().default(obj)
 
 # Configure basic logging
 logging.basicConfig(
@@ -24,7 +33,8 @@ initialization_status = {
     'env_status': 'Not checked',
     'db_status': 'Not checked',
     'start_time': None,
-    'errors': []
+    'errors': [],
+    'webhook_url': None  # Store webhook URL for fallback
 }
 
 # In-memory log storage
@@ -46,47 +56,60 @@ def log_with_storage(level, message):
 async def health_handler(request):
     """Main health check endpoint"""
     try:
-        # Check webhook status
-        webhook_info = await bot.get_webhook_info()
-        
-        # Get Git version
-        try:
-            git_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode('ascii').strip()
-        except:
-            git_hash = None
-            
+        # Basic response structure
         response = {
-            "status": "ok" if initialization_status['initialized'] else "error",
-            "version": git_hash,
-            "timestamp": datetime.now().isoformat(),
-            "uptime": str(datetime.now() - initialization_status['start_time']) if initialization_status['start_time'] else None,
-            "webhook": {
-                "url": webhook_info.url,
-                "pending_updates": webhook_info.pending_update_count
+            "status": "initializing",
+            "timestamp": datetime.now(),
+            "checks": {
+                "database": "not_checked",
+                "webhook": "not_checked",
+                "initialization": initialization_status
             },
-            "initialization": initialization_status
+            "errors": []
         }
         
-        if not webhook_info.url:
-            response["status"] = "error"
-            response["message"] = "Webhook not set"
-            return web.json_response(response, status=500)
+        # Check database connection
+        try:
+            await db.test_connection()
+            response["checks"]["database"] = "ok"
+        except Exception as e:
+            response["checks"]["database"] = "error"
+            response["errors"].append(f"Database error: {str(e)}")
             
-        if not initialization_status['initialized']:
-            response["status"] = "error"
-            response["message"] = "Bot not fully initialized"
-            return web.json_response(response, status=500)
+        # Check webhook status
+        try:
+            webhook_info = await bot.get_webhook_info()
+            webhook_url = webhook_info.url or initialization_status.get('webhook_url', '')
+            response["checks"]["webhook"] = "ok" if webhook_url else "error"
+            response["webhook_info"] = {
+                "url": webhook_url,
+                "pending_updates": webhook_info.pending_update_count
+            }
+        except Exception as e:
+            response["checks"]["webhook"] = "error"
+            response["errors"].append(f"Webhook error: {str(e)}")
             
-        return web.json_response(response)
+        # Overall status determination
+        if response["errors"]:
+            response["status"] = "error"
+        elif not initialization_status['initialized']:
+            response["status"] = "initializing"
+        else:
+            response["status"] = "ok"
+            
+        # Return with appropriate status code
+        status_code = 200 if response["status"] == "ok" else 503
+        return web.json_response(response, status=status_code, dumps=lambda obj: json.dumps(obj, cls=DateTimeEncoder))
         
     except Exception as e:
         error_response = {
             "status": "error",
+            "timestamp": datetime.now(),
             "message": str(e),
-            "timestamp": datetime.now().isoformat()
+            "traceback": traceback.format_exc()
         }
-        logger.error(f"Health check failed: {str(e)}")
-        return web.json_response(error_response, status=500)
+        logger.error(f"Health check failed: {str(e)}", exc_info=True)
+        return web.json_response(error_response, status=500, dumps=lambda obj: json.dumps(obj, cls=DateTimeEncoder))
 
 async def logs_handler(request):
     """Endpoint to get recent application logs"""
@@ -97,22 +120,45 @@ async def logs_handler(request):
 
 async def init_status_handler(request):
     """Endpoint to get initialization status"""
-    return web.json_response(initialization_status)
+    # Create a copy with serializable datetime
+    init_status = initialization_status.copy()
+    if init_status['start_time']:
+        init_status['start_time'] = init_status['start_time'].isoformat() if isinstance(init_status['start_time'], datetime) else init_status['start_time']
+    return web.json_response(init_status)
 
 async def on_startup(dp):
     """Startup handler with better status tracking"""
     log_with_storage(logging.INFO, "Starting initialization process...")
     try:
         initialization_status['start_time'] = datetime.now()
-        log_with_storage(logging.INFO, "Checking environment variables...")
         
-        # Check environment variables
+        # FIRST: Delete any existing webhook to ensure clean state
+        await bot.delete_webhook()
+        log_with_storage(logging.INFO, "Cleared existing webhook configuration")
+        
+        # Set webhook BEFORE any other operations
+        log_with_storage(logging.INFO, "Setting up webhook...")
+        webhook_url = f"https://{os.getenv('RAILWAY_PUBLIC_DOMAIN')}/webhook"
+        await bot.set_webhook(webhook_url, drop_pending_updates=True)  # Drop any pending updates to prevent conflicts
+        
+        # Store webhook URL for fallback
+        initialization_status['webhook_url'] = webhook_url
+        
+        # Verify webhook was set
+        webhook_info = await bot.get_webhook_info()
+        if not webhook_info.url:
+            log_with_storage(logging.ERROR, "Failed to set webhook - URL is empty")
+            raise RuntimeError("Failed to set webhook - URL is empty")
+            
+        log_with_storage(logging.INFO, f"Webhook set and verified at: {webhook_url}")
+        
+        # THEN: Check environment variables
+        log_with_storage(logging.INFO, "Checking environment variables...")
         if not BOT_TOKEN:
             initialization_status['env_status'] = 'Missing BOT_TOKEN'
             log_with_storage(logging.ERROR, "BOT_TOKEN environment variable is not set!")
             raise ValueError("BOT_TOKEN environment variable is not set!")
         initialization_status['env_status'] = 'OK'
-        log_with_storage(logging.INFO, "Environment variables OK")
         
         # Initialize database
         log_with_storage(logging.INFO, "Initializing database...")
@@ -125,12 +171,6 @@ async def on_startup(dp):
             log_with_storage(logging.ERROR, f"Database initialization failed: {str(e)}")
             raise
             
-        # Set webhook
-        log_with_storage(logging.INFO, "Setting up webhook...")
-        webhook_url = f"https://{os.getenv('RAILWAY_PUBLIC_DOMAIN')}/webhook"
-        await bot.set_webhook(webhook_url)
-        log_with_storage(logging.INFO, f"Webhook set to: {webhook_url}")
-        
         # Mark as initialized if everything is OK
         initialization_status['initialized'] = True
         log_with_storage(logging.INFO, "Bot successfully initialized")
