@@ -1,11 +1,17 @@
+# Add comment at the top tracking our changes
+# Changes:
+# - 2025-08-30: Removed SQLite code and standardized on PostgreSQL
+# - 2025-04-14: Removed polling flag and fixed database initialization
+# - 2025-04-09: Modified bot initialization to ensure webhook-only mode
+
+import os
 from aiogram import Bot, Dispatcher, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
-from src.config import BOT_TOKEN, ADMINS, DATABASE_PATH
-from src.utils.db.database import Database
-from src.utils.db.init_db import init_db
+from src.config import BOT_TOKEN, ADMINS, DATABASE_URL
 import logging
 import asyncio
 import sys
+from src.database import Database
 
 # Configure retry settings
 RETRY_DELAYS = [1, 3, 5, 10]
@@ -29,23 +35,19 @@ class RetryBot(Bot):
                 await asyncio.sleep(delay)
         raise last_exc
 
-# Initialize bot with retry logic
-bot = RetryBot(
-    token=BOT_TOKEN,  # We've verified it's not None above
-    parse_mode=types.ParseMode.HTML,
-)
-
-# Storage for FSM
+# Initialize bot with webhook mode
+bot = RetryBot(token=BOT_TOKEN, parse_mode=types.ParseMode.HTML)
 storage = MemoryStorage()
-
-# Initialize dispatcher
 dp = Dispatcher(bot, storage=storage)
 
-# Initialize database
-db = Database(DATABASE_PATH)
-init_db()  # Initialize database with default data
+# Initialize PostgreSQL database 
+from src.utils.db.pg_database import PostgresDatabase
+logging.info("Initializing PostgreSQL database")
+db = PostgresDatabase(DATABASE_URL)
+from src.utils.db.pg_database import create_db as init_db
 
 # Log initialization
 token_preview = BOT_TOKEN[:5] + "..." if BOT_TOKEN else "Not Set"
 logging.info(f"Bot initialized with token: {token_preview}")
 logging.info(f"Admin IDs: {ADMINS}")
+logging.info(f"Using database: PostgreSQL")

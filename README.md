@@ -137,79 +137,108 @@ python manage_bot.py status
 
 ## Technical Details
 
+### Database Support
+
+The bot uses **PostgreSQL** for production deployment:
+
+- Robust relational database with excellent concurrency support
+- Native integration with Railway platform
+- Reliable performance for production use
+- Good scaling capabilities
+
+#### Setting Up PostgreSQL on Railway
+
+To set up PostgreSQL on Railway:
+
+1. Provision a PostgreSQL database in Railway:
+   - Go to your Railway project dashboard
+   - Click "New" and select "Database" → "PostgreSQL"
+   - Wait for the provisioning to complete
+
+2. Set the DATABASE_URL environment variable:
+   - Railway automatically sets DATABASE_URL for your application
+   - Use this variable in your application to connect to the database
+
+3. Verify your PostgreSQL connection:
+   ```bash
+   # Test the connection to PostgreSQL
+   ./test_postgres.py
+   ```
+
+4. If needed, you can initialize or check the database:
+   ```bash
+   # Check database health and populate with sample data if needed
+   ./check_railway_db.py
+   ```
+
 ### Database Schema
 
-The bot uses SQLite with the following schema:
+The bot uses PostgreSQL with the following schema:
 
 1. Users Table:
 ```sql
 CREATE TABLE users (
-    user_id INTEGER PRIMARY KEY,
-    username TEXT,
-    role TEXT NOT NULL DEFAULT 'user',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    user_id BIGINT PRIMARY KEY,
+    username VARCHAR(255),
+    role VARCHAR(50) DEFAULT 'user',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )
 ```
 
 2. Categories Table:
 ```sql
 CREATE TABLE categories (
-    idx TEXT PRIMARY KEY,
-    title TEXT NOT NULL
+    idx SERIAL PRIMARY KEY,
+    title VARCHAR(255) NOT NULL
 )
 ```
 
 3. Products Table:
 ```sql
 CREATE TABLE products (
-    idx TEXT PRIMARY KEY,
-    title TEXT NOT NULL,
+    idx VARCHAR(255) PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
     body TEXT,
-    image TEXT,
-    price INTEGER,
-    tag TEXT,
-    FOREIGN KEY (tag) REFERENCES categories(idx)
+    image VARCHAR(1024),
+    price INTEGER NOT NULL,
+    tag INTEGER REFERENCES categories(idx)
 )
 ```
 
-4. Orders Table:
-```sql
-CREATE TABLE orders (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    product_id TEXT NOT NULL,
-    quantity INTEGER NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (product_id) REFERENCES products(idx),
-    FOREIGN KEY (user_id) REFERENCES users(user_id)
-)
-```
-
-5. Cart Table:
+4. Cart Table:
 ```sql
 CREATE TABLE cart (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    product_id TEXT NOT NULL,
-    quantity INTEGER NOT NULL DEFAULT 1,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (product_id) REFERENCES products(idx),
-    FOREIGN KEY (user_id) REFERENCES users(user_id),
-    UNIQUE(user_id, product_id)
+    id SERIAL PRIMARY KEY,
+    user_id BIGINT REFERENCES users(user_id),
+    product_id VARCHAR(255) REFERENCES products(idx),
+    quantity INTEGER DEFAULT 1,
+    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )
 ```
 
-6. Questions Table:
+5. Orders Table:
 ```sql
-CREATE TABLE questions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    username TEXT NOT NULL,
-    question TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending',
+CREATE TABLE orders (
+    id SERIAL PRIMARY KEY,
+    user_id BIGINT REFERENCES users(user_id),
+    status VARCHAR(50) DEFAULT 'pending',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(user_id)
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    address TEXT,
+    phone VARCHAR(50),
+    total_price INTEGER
+)
+```
+
+6. Order Items Table:
+```sql
+CREATE TABLE order_items (
+    id SERIAL PRIMARY KEY,
+    order_id INTEGER REFERENCES orders(id),
+    product_id VARCHAR(255) REFERENCES products(idx),
+    quantity INTEGER DEFAULT 1,
+    price INTEGER NOT NULL
 )
 ```
 
@@ -217,7 +246,7 @@ CREATE TABLE questions (
 
 The bot is built using:
 - aiogram framework for Telegram Bot API
-- SQLite for data storage
+- PostgreSQL for database storage
 - Asynchronous handlers for better performance
 - Retry logic for API calls
 - State management for multi-step operations
@@ -237,11 +266,15 @@ Configure the bot using a `.env` file in the project root:
 
 *   `BOT_TOKEN`: Your Telegram Bot API token
 *   `ADMINS`: Comma-separated list of Telegram User IDs for admins
+*   `DATABASE_URL`: PostgreSQL connection URL (provided by Railway)
+*   `DATABASE_TYPE`: Set to "postgres" for PostgreSQL
 
 Example `.env` file:
 ```
 BOT_TOKEN=your_bot_token_here
 ADMINS=123456789,987654321
+DATABASE_TYPE=postgres
+DATABASE_URL=postgresql://postgres:password@hostname:port/railway
 ```
 
 ## Dependencies
@@ -252,6 +285,8 @@ ADMINS=123456789,987654321
 *   `aiohttp==3.8.6`: Asynchronous HTTP client/server
 *   `Pillow==9.5.0`: Image processing
 *   `python-dateutil==2.8.2`: DateTime utilities
+*   `psycopg2-binary==2.9.9`: PostgreSQL adapter for Python
+*   `requests==2.31.0`: HTTP library
 
 ## Error Handling
 
@@ -373,7 +408,6 @@ To ask the admin a question, simply select the `/sos` command. There is a limit 
 │   ├── test_bot.py       # Bot tests
 │   └── pytest.ini        # Pytest configuration
 ├── data/                 # Data storage
-│   └── database.db      # SQLite database
 ├── docs/                # Documentation
 ├── run/                 # Runtime files
 │   └── bot.pid         # Process ID file
@@ -449,16 +483,19 @@ The project includes comprehensive testing capabilities:
 - `test_bot.py`: Live API testing
 
 ### Test Database
-The test suite uses a temporary SQLite database for each test:
+The test suite uses a PostgreSQL test database for each test:
 ```python
 @pytest.fixture
 async def test_db():
     """Create temporary test database"""
-    db_fd, db_path = tempfile.mkstemp()
-    test_db = init_test_db(db_path)
+    # Generate unique test database URL
+    test_db_url = f"{DATABASE_URL}_test_{uuid.uuid4().hex[:8]}"
+    test_db = PostgresDatabase(test_db_url)
+    await test_db.create_tables()
     yield test_db
-    os.close(db_fd)
-    os.unlink(db_path)
+    # Clean up test database
+    await test_db.drop_tables()
+    await test_db.close()
 ```
 
 ### Database Schema Testing
@@ -601,3 +638,25 @@ If you're experiencing issues with your webhook:
 2. Verify that your webhook URL is correctly set in Telegram
 3. Check for error responses in the webhook tester output
 4. Confirm that you receive messages in Telegram after running the webhook test
+
+## Important Development Notes
+
+### Railway Database Connection
+
+When connecting to a Railway PostgreSQL database:
+
+1. **Always check the Railway UI for the correct connection strings**
+   - Each PostgreSQL instance has two connection strings visible in the Variables section:
+     - `DATABASE_URL`: For internal connections (within Railway services)
+     - `DATABASE_PUBLIC_URL`: For external connections (from your local machine)
+
+2. **Use Variable References to connect services**
+   - When connecting a bot service to a database service, use the "Variable Reference" feature
+   - This automatically shares all the necessary connection details between services
+   - Click "Looking to connect a database? Add a Variable Reference" in the service Variables tab
+
+3. **Troubleshooting connections**
+   - If a service can't connect to the database, check that the correct connection string is being used
+   - Internal services should use the internal connection string format
+   - Local development should use the public connection string
+   - Always verify connection strings after creating a new database instance

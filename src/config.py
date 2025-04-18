@@ -55,8 +55,19 @@ def parse_admin_ids(admin_str):
         return []
 
 # List of admin user IDs with proper error handling
-ADMINS = parse_admin_ids(os.getenv("ADMINS", ""))
+raw_admin_ids = os.getenv("ADMINS", "")
+
+# In production, ensure we have at least one admin ID
+if os.getenv('RAILWAY_ENVIRONMENT') == 'production' and not raw_admin_ids:
+    logger.warning("No admin IDs configured in production - using default admin ID")
+    raw_admin_ids = "238038462"  # Default admin ID for production
+
+ADMINS = parse_admin_ids(raw_admin_ids)
 logger.info(f"Configured admin IDs: {ADMINS}")
+
+# Ensure we have admin IDs in production
+if os.getenv('RAILWAY_ENVIRONMENT') == 'production' and not ADMINS:
+    raise ValueError("No valid admin IDs configured for production environment!")
 
 # Base paths
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -64,8 +75,17 @@ LOGS_DIR = os.path.join(BASE_DIR, "logs")
 DATA_DIR = os.path.join(BASE_DIR, "data")
 ASSETS_DIR = os.path.join(BASE_DIR, "src", "assets")
 
-# Database
-DATABASE_PATH = os.path.join(DATA_DIR, "database.db")
+# Database configuration - PostgreSQL only
+# Format: postgresql://username:password@hostname:port/database
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+# Enforce PostgreSQL configuration
+if not DATABASE_URL:
+    error_msg = "DATABASE_URL environment variable is not set! PostgreSQL is required."
+    logger.error(error_msg)
+    raise ValueError(error_msg)
+
+logger.info("Using PostgreSQL database")
 
 # Ensure directories exist
 os.makedirs(LOGS_DIR, exist_ok=True)

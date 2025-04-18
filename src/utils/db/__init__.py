@@ -1,1 +1,1 @@
-from .database import Database
+from .pg_database import PostgresDatabase as Database

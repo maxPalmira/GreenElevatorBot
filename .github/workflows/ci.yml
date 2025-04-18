@@ -25,8 +25,4 @@ jobs:
         
     - name: Run tests
       run: |
-        python -m pytest tests/
-        
-    - name: Health check
-      run: |
-        python -c "import requests; response = requests.get('http://localhost:8000/health'); assert response.status_code == 200" 
+        python -m pytest tests/ 

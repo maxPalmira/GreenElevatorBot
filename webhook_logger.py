@@ -9,6 +9,8 @@ import time
 import requests
 import argparse
 from datetime import datetime
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # Colors for console output
 class Colors:
@@ -23,6 +25,18 @@ class Colors:
 def print_color(text, color):
     """Print colored text to console"""
     print(f"{color}{text}{Colors.ENDC}")
+
+def create_session():
+    """Create a requests session with retries"""
+    session = requests.Session()
+    retries = Retry(
+        total=3,
+        backoff_factor=0.5,
+        status_forcelist=[500, 502, 503, 504]
+    )
+    session.mount('http://', HTTPAdapter(max_retries=retries))
+    session.mount('https://', HTTPAdapter(max_retries=retries))
+    return session
 
 def create_update(chat_id, text):
     """Create a simulated Telegram update object for the command"""
@@ -103,6 +117,32 @@ def create_callback_query(chat_id, callback_data):
     
     return update
 
+def notify_telegram(chat_id, message, token):
+    """Send a notification message to Telegram"""
+    if not token:
+        return False
+        
+    try:
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        data = {
+            "chat_id": chat_id,
+            "text": message,
+            "parse_mode": "HTML"
+        }
+        
+        session = create_session()
+        response = session.post(url, json=data, timeout=10)
+        
+        if response.status_code == 200:
+            print_color("✓ Notification sent to Telegram", Colors.GREEN)
+            return True
+        else:
+            print_color(f"✗ Failed to send notification: {response.status_code}", Colors.RED)
+            return False
+    except Exception as e:
+        print_color(f"✗ Error sending notification: {str(e)}", Colors.RED)
+        return False
+
 def test_webhook(url, chat_id, command, token=None, callback=False, verbose=False, show_webhook_info=False):
     """Send command to webhook and show the response"""
     try:
@@ -118,14 +158,16 @@ def test_webhook(url, chat_id, command, token=None, callback=False, verbose=Fals
             print_color("REQUEST:", Colors.YELLOW)
             print(json.dumps(update, indent=2))
         
-        # Send the request
+        # Send the request with retries
         print_color(f"Sending to webhook: {url}", Colors.YELLOW)
         start_time = time.time()
-        response = requests.post(
+        
+        session = create_session()
+        response = session.post(
             url,
             json=update,
             headers={"Content-Type": "application/json"},
-            timeout=10
+            timeout=(5, 30)  # (connect timeout, read timeout)
         )
         response_time = time.time() - start_time
         
@@ -141,10 +183,33 @@ def test_webhook(url, chat_id, command, token=None, callback=False, verbose=Fals
         
         if verbose and response.text:
             print_color("\nWebhook Response Content:", Colors.YELLOW)
-            print(response.text)
+            try:
+                # Try to format as JSON if possible
+                response_json = response.json()
+                print(json.dumps(response_json, indent=2))
+            except:
+                print(response.text)
+        
+        # Send a confirmation message via Telegram API if token is provided
+        if token:
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            message = f"<b>Webhook Test</b>\n"
+            message += f"<b>Time:</b> {timestamp}\n"
+            message += f"<b>Command:</b> {command}\n"
+            message += f"<b>Status:</b> {'✅ Success' if success else '❌ Failed'}\n"
+            message += f"<b>Response Time:</b> {response_time:.2f}s"
+            
+            notify_telegram(chat_id, message, token)
             
         return success
             
+    except requests.exceptions.Timeout:
+        print_color(f"ERROR: Request timed out after {time.time() - start_time:.1f}s", Colors.RED)
+        print_color("Try increasing the timeout with --timeout option", Colors.YELLOW)
+        return False
+    except requests.exceptions.ConnectionError:
+        print_color(f"ERROR: Could not connect to {url}", Colors.RED)
+        return False
     except Exception as e:
         print_color(f"ERROR: {str(e)}", Colors.RED)
         return False
@@ -157,6 +222,8 @@ def main():
     parser.add_argument("command", help="The command or callback data to send")
     parser.add_argument("--callback", action="store_true", help="Send a callback query instead of a message")
     parser.add_argument("--verbose", "-v", action="store_true", help="Show verbose output")
+    parser.add_argument("--timeout", type=int, default=30, help="Request timeout in seconds")
+    parser.add_argument("--token", help="Bot token for sending confirmation via Telegram API")
     
     args = parser.parse_args()
     
@@ -165,6 +232,7 @@ def main():
         args.url,
         args.chat_id,
         args.command,
+        token=args.token,
         callback=args.callback,
         verbose=args.verbose
     )

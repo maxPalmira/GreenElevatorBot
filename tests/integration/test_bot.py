@@ -3,6 +3,7 @@ import logging
 import time
 import json
 import requests
+import os
 from pathlib import Path
 import sys
 from aiogram import types, Bot, Dispatcher
@@ -22,8 +23,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger('BotTester')
 
-# Bot token from Railway
-BOT_TOKEN = "7881793630:AAGBPflLxLtK9Ahmu6QbRSXQhli_W6rfXv4"
+# Get bot token from environment, with a test token fallback for local testing
+BOT_TOKEN = os.getenv('TEST_BOT_TOKEN', '1234567890:ABCdefGHIjklMNOpqrsTUVwxyz123456789')  # Default test token
+
+# Skip tests if we're in production environment
+if os.getenv('RAILWAY_ENVIRONMENT') == 'production':
+    pytest.skip("Skipping tests in production environment", allow_module_level=True)
 
 @pytest.fixture
 async def bot():

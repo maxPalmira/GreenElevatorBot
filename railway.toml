@@ -1,0 +1,14 @@
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+startCommand = "python -m src.app"
+healthcheckPath = "/health"
+healthcheckTimeout = 300  # 5 minutes
+restartPolicyType = "ON_FAILURE"
+numReplicas = 1
+healthcheckInterval = 15  # Check every 15 seconds
+healthcheckRetries = 20  # Allow more retries
+
+[service]
+internal_port = 8080 

@@ -1,18 +1,18 @@
 """
 Test configuration module.
-Last Updated: 2024-03-20
+Last Updated: 2024-08-30
 Changes:
-- Added proper database initialization
-- Fixed test database cleanup
-- Added test admin IDs
+- Migrated from SQLite to PostgreSQL for testing
+- Updated database initialization and cleanup procedures
+- Implemented test database isolation pattern
 """
 
 import os
 import logging
-import tempfile
-import sqlite3
+import uuid
+import psycopg2
 from dotenv import load_dotenv
-from src.utils.db.init_db import init_test_db
+from src.utils.db.pg_database import PostgresDatabase, create_db
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -23,44 +23,61 @@ load_dotenv('.env.test', override=True)
 
 # Test configuration
 TEST_ADMIN_IDS = [12345]  # Test admin user IDs
-TEST_DB_PATH = os.path.join(tempfile.gettempdir(), 'test_bot.db')
+TEST_DB_URL = os.getenv("DATABASE_URL", "")
 
-def cleanup_test_db():
+if not TEST_DB_URL:
+    raise ValueError("DATABASE_URL must be set for testing")
+
+# Add test suffix to avoid conflicting with production database
+BASE_TEST_DB_URL = TEST_DB_URL + "_test"
+
+def get_unique_test_db_url():
+    """Generate a unique test database URL"""
+    return f"{BASE_TEST_DB_URL}_{uuid.uuid4().hex[:8]}"
+
+def cleanup_test_db(db_url):
     """Clean up test database"""
     try:
-        if os.path.exists(TEST_DB_PATH):
-            os.unlink(TEST_DB_PATH)
+        # Connect to PostgreSQL server (not the specific database)
+        server_url = db_url.rsplit('/', 1)[0]
+        conn = psycopg2.connect(f"{server_url}/postgres")
+        conn.autocommit = True
+        
+        # Get database name from URL
+        db_name = db_url.rsplit('/', 1)[1]
+        
+        with conn.cursor() as cursor:
+            # Terminate all connections to the database
+            cursor.execute(f"SELECT pg_terminate_backend(pg_stat_activity.pid) FROM pg_stat_activity WHERE pg_stat_activity.datname = '{db_name}' AND pid <> pg_backend_pid()")
+            # Drop the database if it exists
+            cursor.execute(f"DROP DATABASE IF EXISTS {db_name}")
+        
+        conn.close()
     except Exception as e:
         print(f"Error cleaning up test database: {e}")
 
 def setup_test_db():
     """Set up test database"""
-    cleanup_test_db()  # Ensure clean state
-    db = init_test_db(TEST_DB_PATH)
-    return db
+    db_url = get_unique_test_db_url()
+    db = PostgresDatabase(db_url)
+    
+    # Create database and tables
+    try:
+        create_db(db_url)
+        db.connect()
+        
+        # Insert test data here
+        # This is a simplified version - you may need to add more test data
+        
+        return db
+    except Exception as e:
+        print(f"Error setting up test database: {e}")
+        cleanup_test_db(db_url)
+        raise
 
 def get_test_db():
-    """Get test database connection"""
-    if not os.path.exists(TEST_DB_PATH):
-        return setup_test_db()
-    
-    try:
-        conn = sqlite3.connect(TEST_DB_PATH)
-        cursor = conn.cursor()
-        
-        # Verify schema
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        tables = [table[0] for table in cursor.fetchall()]
-        required_tables = ['users', 'categories', 'products', 'orders', 'cart', 'questions']
-        
-        if not all(table in tables for table in required_tables):
-            conn.close()
-            return setup_test_db()
-            
-        return conn
-    except Exception as e:
-        print(f"Error connecting to test database: {e}")
-        return setup_test_db()
+    """Get a connection to a fresh test database"""
+    return setup_test_db()
 
 # Test bot token (can be the same as production for now)
 TEST_BOT_TOKEN = os.getenv("BOT_TOKEN") 

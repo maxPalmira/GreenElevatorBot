@@ -4,7 +4,7 @@ from src.loader import dp, db, bot
 from src.filters import IsAdmin
 from src.utils.texts import BUTTON_TEXTS
 from aiogram.types.chat import ChatActions
-from src.utils.db.database import Database
+from src.utils.db import Database
 
 product_cb = CallbackData('product', 'id', 'action')
 
@@ -14,7 +14,7 @@ async def process_products(message: Message, database: Database = None):
     db_instance = database or db
     
     # Get products with their categories
-    products = db_instance.query('''
+    products = db_instance.execute('''
         SELECT p.*, c.title as category
         FROM (SELECT * FROM products) p
         LEFT JOIN categories c ON p.tag = c.idx

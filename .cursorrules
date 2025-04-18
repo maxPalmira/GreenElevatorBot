@@ -1,0 +1,18 @@
+DATABASE RULES:
+- This project uses PostgreSQL exclusively via Railway
+- No SQLite implementations allowed
+- All database operations must use PostgreSQL
+- Tests must use PostgreSQL test databases
+- Required env vars: DATABASE_URL
+- All SQL queries must use PostgreSQL syntax with %s placeholders for parameters, not ? placeholders
+- Use ON CONFLICT clauses instead of OR REPLACE/OR IGNORE
+
+CODE ORGANIZATION:
+- All database operations should use src/utils/db/pg_database.py
+- Do not create new SQLite database implementations
+- All tests should use PostgreSQL test database connections
+
+DEPLOYMENT:
+- Railway is the primary deployment platform
+- Database connections in production use Railway's PostgreSQL service
+- Connection pooling is recommended for production deployments 

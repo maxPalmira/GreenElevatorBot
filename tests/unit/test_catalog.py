@@ -17,7 +17,7 @@ import pytest
 from unittest.mock import AsyncMock, patch, MagicMock, call
 import logging
 from aiogram import types
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, CallbackQuery
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, CallbackQuery, ChatActions
 
 from src.handlers.user.catalog import process_catalog, category_callback_handler, show_products
 from tests.utils.test_utils import print_header, print_info, print_success, print_failure
@@ -229,5 +229,78 @@ async def test_category_callback_empty_detailed(mock_callback_query):
         # Verify response
         mock_callback_query.answer.assert_called_once_with('No products in this category')
         mock_show_products.assert_not_called()
+        
+        print_success("All assertions passed - test successful")
+
+@pytest.mark.asyncio
+async def test_show_products_display():
+    """Test that show_products correctly displays product information and buttons"""
+    print_header("Testing show_products function directly")
+    
+    # Create a mock message
+    message_mock = AsyncMock(spec=Message)
+    message_mock.from_user = MagicMock()
+    message_mock.from_user.id = 12345
+    message_mock.from_user.username = "test_user"
+    message_mock.chat = MagicMock()
+    message_mock.chat.id = 12345
+    
+    # Create test products (same format as returned by database)
+    test_products = [
+        ('prod1', 'Premium Product', 'This is a premium product description.', 'image_url_1.jpg', 5000, 'Premium'),
+        ('prod2', 'Basic Product', 'This is a basic product with no image.', None, 2500, 'Basic')
+    ]
+    
+    # Setup mocks
+    with patch('src.handlers.user.catalog.bot') as mock_bot, \
+         patch('src.handlers.user.catalog.db') as mock_db:
+        
+        # Mock bot.send_chat_action
+        mock_bot.send_chat_action = AsyncMock()
+        
+        # Mock database responses
+        # 1. First call to db.execute will be for user check/insert
+        # 2. Second set of calls will be to check if products are in cart
+        mock_db.execute.side_effect = [
+            None,  # For user check/insert
+            None,  # First product not in cart
+            (2,)   # Second product in cart with quantity 2
+        ]
+        
+        # Execute the function
+        print_info("Executing show_products function")
+        await show_products(message_mock, test_products)
+        
+        # Verify bot.send_chat_action was called
+        mock_bot.send_chat_action.assert_called_once_with(12345, ChatActions.TYPING)
+        
+        # Verify db.execute was called for user check
+        first_call = mock_db.execute.call_args_list[0]
+        assert 'INSERT OR IGNORE INTO users' in first_call[0][0], "Should insert/check user in database"
+        
+        # Verify product display calls
+        # Check that answer_photo was called for the product with image
+        assert message_mock.answer_photo.call_count >= 1, "Should send at least one photo"
+        
+        # Check that answer was called for product without image
+        assert message_mock.answer.call_count >= 1, "Should send at least one text message"
+        
+        # Check content for the first product (with image)
+        photo_call = message_mock.answer_photo.call_args_list[0]
+        assert photo_call[1]['photo'] == 'image_url_1.jpg', "Should use correct image URL"
+        assert 'Premium Product' in photo_call[1]['caption'], "Should include product title"
+        assert '$50.00' in photo_call[1]['caption'], "Should format price correctly"
+        assert 'Premium' in photo_call[1]['caption'], "Should include category"
+        
+        # Verify the markup for the first product (not in cart)
+        first_markup = photo_call[1]['reply_markup']
+        assert isinstance(first_markup, InlineKeyboardMarkup), "Should use InlineKeyboardMarkup"
+        
+        # If we can check the buttons:
+        if hasattr(first_markup, 'inline_keyboard') and first_markup.inline_keyboard:
+            assert len(first_markup.inline_keyboard) >= 1, "Should have at least one row of buttons"
+            first_row = first_markup.inline_keyboard[0]
+            assert len(first_row) >= 1, "Should have at least one button in the first row"
+            assert "Add to Cart" in first_row[0].text, "Should have add to cart button for first product"
         
         print_success("All assertions passed - test successful") 
