@@ -9,7 +9,7 @@ from typing import Dict, Any, Optional, List
 from colorama import init, Fore, Style, Back
 from aiogram import types
 from src.config import ADMINS, DATABASE_PATH, DATA_DIR
-from src.utils.db.database import Database
+from src.utils.db import Database
 
 # Initialize colorama for cross-platform colored output
 init(autoreset=True)
