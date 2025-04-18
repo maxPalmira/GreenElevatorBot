@@ -6,7 +6,7 @@ from src.utils.texts import BUTTON_TEXTS
 @dp.message_handler(IsAdmin(), text=BUTTON_TEXTS['ADMIN_ORDERS'])
 async def process_orders(message: Message):
     # Get orders with product details
-    orders = db.query('''
+    orders = db.execute('''
         SELECT id, user_id, product_id, p.title, quantity, status, created_at
         FROM orders
         JOIN products p ON product_id = p.idx

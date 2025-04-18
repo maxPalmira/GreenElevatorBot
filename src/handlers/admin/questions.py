@@ -5,7 +5,7 @@ from src.utils.texts import BUTTON_TEXTS
 
 @dp.message_handler(IsAdmin(), text=BUTTON_TEXTS['ADMIN_QUESTIONS'])
 async def process_questions(message: Message):
-    questions = db.query('''
+    questions = db.execute('''
         SELECT id, user_id, username, question, status, created_at
         FROM questions
         ORDER BY created_at DESC

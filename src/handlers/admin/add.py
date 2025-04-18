@@ -1,4 +1,3 @@
-
 from aiogram.dispatcher import FSMContext
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ContentType, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from aiogram.utils.callback_data import CallbackData
@@ -23,7 +22,7 @@ async def process_settings(message: Message):
 
     markup = InlineKeyboardMarkup()
 
-    for idx, title in db.fetchall('SELECT * FROM categories'):
+    for idx, title in db.execute('SELECT * FROM categories', fetchall=True):
 
         markup.add(InlineKeyboardButton(
             title, callback_data=category_cb.new(id=idx, action='view')))
@@ -39,9 +38,9 @@ async def category_callback_handler(query: CallbackQuery, callback_data: dict, s
 
     category_idx = callback_data['id']
 
-    products = db.fetchall('''SELECT * FROM products product
+    products = db.execute('''SELECT * FROM products product
     WHERE product.tag = (SELECT title FROM categories WHERE idx=?)''',
-                           (category_idx,))
+                           (category_idx,), fetchall=True)
 
     await query.message.delete()
     await query.answer('Все добавленные товары в эту категорию.')
@@ -64,7 +63,7 @@ async def set_category_title_handler(message: Message, state: FSMContext):
 
     category = message.text
     idx = md5(category.encode('utf-8')).hexdigest()
-    db.query('INSERT INTO categories VALUES (?, ?)', (idx, category))
+    db.execute('INSERT INTO categories VALUES (?, ?)', (idx, category), commit=True)
 
     await state.finish()
     await process_settings(message)
@@ -79,9 +78,9 @@ async def delete_category_handler(message: Message, state: FSMContext):
 
             idx = data['category_index']
 
-            db.query(
-                'DELETE FROM products WHERE tag IN (SELECT title FROM categories WHERE idx=?)', (idx,))
-            db.query('DELETE FROM categories WHERE idx=?', (idx,))
+            db.execute(
+                'DELETE FROM products WHERE tag IN (SELECT title FROM categories WHERE idx=?)', (idx,), commit=True)
+            db.execute('DELETE FROM categories WHERE idx=?', (idx,), commit=True)
 
             await message.answer('Готово!', reply_markup=ReplyKeyboardRemove())
             await process_settings(message)
@@ -237,13 +236,13 @@ async def process_confirm(message: Message, state: FSMContext):
         image = data['image']
         price = data['price']
 
-        tag = db.fetchone(
-            'SELECT title FROM categories WHERE idx=?', (data['category_index'],))[0]
+        tag = db.execute(
+            'SELECT title FROM categories WHERE idx=?', (data['category_index'],), fetchone=True)[0]
         idx = md5(' '.join([title, body, price, tag]
                            ).encode('utf-8')).hexdigest()
 
-        db.query('INSERT INTO products VALUES (?, ?, ?, ?, ?, ?)',
-                 (idx, title, body, image, int(price), tag))
+        db.execute('INSERT INTO products VALUES (?, ?, ?, ?, ?, ?)',
+                 (idx, title, body, image, int(price), tag), commit=True)
 
     await state.finish()
     await message.answer('Готово!', reply_markup=ReplyKeyboardRemove())
@@ -257,7 +256,7 @@ async def process_confirm(message: Message, state: FSMContext):
 async def delete_product_callback_handler(query: CallbackQuery, callback_data: dict):
 
     product_idx = callback_data['id']
-    db.query('DELETE FROM products WHERE idx=?', (product_idx,))
+    db.execute('DELETE FROM products WHERE idx=?', (product_idx,), commit=True)
     await query.answer('Удалено!')
     await query.message.delete()
 
