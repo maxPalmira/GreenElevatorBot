@@ -17,7 +17,7 @@ def get_product_details(db: Database, product_id: int) -> Optional[Dict[str, Any
         Dict with product details or None if not found
     """
     query = "SELECT * FROM products WHERE id = %s"
-    result = db.fetchone(query, (product_id,))
+    result = db.execute(query, (product_id,), fetchone=True)
     
     if not result:
         return None
