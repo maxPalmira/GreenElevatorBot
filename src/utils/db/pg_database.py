@@ -14,6 +14,7 @@ from psycopg2.pool import SimpleConnectionPool
 from psycopg2.extras import DictCursor
 from typing import Any, List, Optional, Tuple, Union, Dict
 from urllib.parse import urlparse
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -23,12 +24,30 @@ class PostgresDatabase:
         # Use provided connection string first, then DATABASE_URL, then construct from PG* vars
         self.connection_string = connection_string or os.getenv('DATABASE_URL')
         
+        # Check if the connection string contains unprocessed environment variables like ${VAR}
+        if self.connection_string and ('${' in self.connection_string or '$RAILWAY' in self.connection_string):
+            logger.warning("Connection string contains unprocessed environment variables. Attempting to fix...")
+            
+            # Try to extract and replace each ${VAR} pattern
+            var_pattern = re.compile(r'\${([^}]+)}')
+            for match in var_pattern.finditer(self.connection_string):
+                var_name = match.group(1)
+                var_value = os.getenv(var_name, '')
+                if var_value:
+                    self.connection_string = self.connection_string.replace(f'${{{var_name}}}', var_value)
+                    logger.info(f"Replaced ${{{var_name}}} with its value")
+                else:
+                    logger.warning(f"Environment variable {var_name} not found")
+        
         # If no connection string and we're in Railway, construct from PG* vars
         if not self.connection_string and os.getenv('RAILWAY_ENVIRONMENT') and all(os.getenv(var) for var in ['PGHOST', 'PGPORT', 'PGUSER', 'PGPASSWORD', 'PGDATABASE']):
-            self.connection_string = (
-                f"postgresql://{os.getenv('PGUSER')}:{os.getenv('PGPASSWORD')}@"
-                f"{os.getenv('PGHOST')}:{os.getenv('PGPORT')}/{os.getenv('PGDATABASE')}"
-            )
+            pghost = os.getenv('PGHOST', '')
+            pgport = os.getenv('PGPORT', '5432')
+            pguser = os.getenv('PGUSER', '')
+            pgpassword = os.getenv('PGPASSWORD', '')
+            pgdatabase = os.getenv('PGDATABASE', '')
+            
+            self.connection_string = f"postgresql://{pguser}:{pgpassword}@{pghost}:{pgport}/{pgdatabase}"
             logger.info("Using Railway private networking configuration")
         else:
             logger.info("Using provided connection string or DATABASE_URL")
